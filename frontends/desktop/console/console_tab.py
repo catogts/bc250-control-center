@@ -36,13 +36,15 @@ class _PromptGlyph(QWidget):
         super().__init__(parent)
         self.setFixedSize(16, 16)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        #: Drawn on the console's ground (the selected tab of several).
+        self.on_console = False
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API name
         from ..theme import COLORS
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        pen = QPen(QColor(COLORS["blue"]))
+        pen = QPen(QColor(COLORS["console_blue" if self.on_console else "blue"]))
         pen.setWidthF(1.6)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -161,6 +163,12 @@ class ConsoleTab(QWidget):
         # resolves an ID rule on the label itself first, so the label carries
         # the flag directly.
         self.title_label.setProperty("dim", not self._active and self._in_a_strip)
+        # The selected chip of several is painted with the console's ground.
+        on_console = self._active and self._in_a_strip
+        self.title_label.setProperty("onConsole", on_console)
+        self.state_label.setProperty("onConsole", on_console)
+        self.glyph.on_console = on_console
+        self.glyph.update()
         self.repolish_tree()
 
     def set_among_others(self, among_others: bool) -> None:

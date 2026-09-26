@@ -315,6 +315,21 @@ def _relative_luminance(color: str) -> float:
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
 
 
+def _contrast(first: str, second: str) -> float:
+    """WCAG contrast ratio between two ``#RRGGBB`` colors."""
+    light, dark = sorted((_relative_luminance(first), _relative_luminance(second)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def _readable_on(color: str, ground: str, ink: str) -> str:
+    """``color``, drawn toward ``ink`` only as far as AA on ``ground`` needs."""
+    for step in range(21):
+        candidate = _blend(color, ink, step / 20)
+        if _contrast(candidate, ground) >= 4.5:
+            return candidate
+    return ink
+
+
 def _ink_for(background: str) -> str:
     """Readable text color for a solid accent fill.
 
@@ -349,6 +364,13 @@ def _finish_palette(palette: dict[str, str], mode: str) -> dict[str, str]:
     palette["red_hover"] = _blend(
         palette["red"], "#FFFFFF" if mode == "dark" else "#000000", 0.10
     )
+    # The console stays dark in every theme. Words drawn on its ground — the
+    # selected tab, the terminal's menu — need colours made for it: the light
+    # theme's ink and tones measured about 1:1 to 2.5:1 there.
+    ground, ink = palette["console_bg"], palette["console_text"]
+    palette["console_muted"] = _readable_on(_blend(ink, ground, 0.45), ground, ink)
+    for tone in ("blue", "green", "orange", "red"):
+        palette[f"console_{tone}"] = _readable_on(palette[tone], ground, ink)
     return palette
 
 
@@ -2302,6 +2324,15 @@ def application_stylesheet(mode: str | None = None, accent: str | None = None, d
     QLabel#consoleState[tone='ok'] {{ color: {c['green']}; font-weight: 700; }}
     QLabel#consoleState[tone='failed'] {{ color: {c['red']}; font-weight: 700; }}
     QLabel#consoleState[tone='warning'] {{ color: {c['orange']}; font-weight: 700; }}
+    /* The selected tab of several wears the console's ground, which is dark
+       in the light themes too: its words take the console's colours, or the
+       title is dark on dark. The label carries the flag, as with "dim". */
+    QLabel#consoleTitle[onConsole='true'] {{ color: {c['console_text']}; }}
+    QLabel#consoleState[onConsole='true'] {{ color: {c['console_muted']}; }}
+    QLabel#consoleState[onConsole='true'][tone='running'] {{ color: {c['console_blue']}; }}
+    QLabel#consoleState[onConsole='true'][tone='ok'] {{ color: {c['console_green']}; }}
+    QLabel#consoleState[onConsole='true'][tone='failed'] {{ color: {c['console_red']}; }}
+    QLabel#consoleState[onConsole='true'][tone='warning'] {{ color: {c['console_orange']}; }}
     QPushButton#consoleHeaderButton {{
         background: transparent;
         color: {c['muted']};
@@ -2376,6 +2407,34 @@ def application_stylesheet(mode: str | None = None, accent: str | None = None, d
     }}
     QAbstractScrollArea#embeddedTerminalView QWidget {{
         background: {c['console_bg']};
+    }}
+    /* The rule above reaches the grid's Copy/Paste menu as well, which is a
+       child of the view, while its text still came from the universal rule:
+       dark on dark in the light themes, so the menu looked like it never
+       opened. It carries the console's complete pair now. */
+    QAbstractScrollArea#embeddedTerminalView QMenu {{
+        background: {c['console_bg']};
+        color: {c['console_text']};
+        border: 1px solid {c['console_border']};
+        border-radius: 8px;
+        padding: 4px;
+    }}
+    QAbstractScrollArea#embeddedTerminalView QMenu::item {{
+        background: transparent;
+        color: {c['console_text']};
+        padding: 6px 22px 6px 12px;
+        border-radius: 6px;
+    }}
+    QAbstractScrollArea#embeddedTerminalView QMenu::item:selected {{
+        background: {c['console_border']};
+    }}
+    QAbstractScrollArea#embeddedTerminalView QMenu::item:disabled {{
+        color: {c['console_muted']};
+    }}
+    QAbstractScrollArea#embeddedTerminalView QMenu::separator {{
+        height: 1px;
+        background: {c['console_border']};
+        margin: 4px 6px;
     }}
     /* A thin overlay rail rather than a full scrollbar: the output is what the
        panel is for, and a chunky bar beside it competes for the eye. */

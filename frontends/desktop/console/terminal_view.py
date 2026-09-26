@@ -425,7 +425,12 @@ class TerminalView(QAbstractScrollArea):
         clipboard.setText(text)
         return True
 
-    def _show_context_menu(self, point) -> None:
+    def context_menu(self) -> QMenu:
+        """Copy, Copy everything, Paste and Select all, as a child of the view.
+
+        The parent is what gives the menu the console's colours from the
+        stylesheet; the caller owns the menu once it has been shown.
+        """
         menu = QMenu(self)
         copy = menu.addAction(self._label("Copy"))
         copy.setEnabled(bool(self.selected_text()))
@@ -434,7 +439,14 @@ class TerminalView(QAbstractScrollArea):
         menu.addAction(self._label("Paste")).triggered.connect(self.paste_clipboard)
         menu.addSeparator()
         menu.addAction(self._label("Select all")).triggered.connect(self.select_all)
+        return menu
+
+    def _show_context_menu(self, point) -> None:
+        menu = self.context_menu()
         menu.exec(self.mapToGlobal(point))
+        # One menu per right click; kept as children they piled up for the
+        # life of the tab.
+        menu.deleteLater()
 
     @staticmethod
     def _label(text: str) -> str:

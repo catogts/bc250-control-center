@@ -17,6 +17,7 @@ from bc250cc.infrastructure.bazzite_async_compute import (
 from bc250cc.infrastructure.cachyos_bc250_kernel import (
     build_cachyos_bc250_kernel_command,
 )
+from bc250cc.infrastructure.fedora_gfx1013 import build_fedora_gfx1013_command
 
 
 def _assert_valid_shell(script: str, label: str) -> None:
@@ -39,4 +40,12 @@ def test_cachyos_workflows_are_valid_shell(action: str) -> None:
 def test_bazzite_async_compute_workflow_is_valid_shell(action: str) -> None:
     _assert_valid_shell(
         build_bazzite_async_compute_command(action), f"bazzite-async/{action}"
+    )
+
+
+@pytest.mark.parametrize("action", ("install", "status", "uninstall"))
+def test_fedora_gfx1013_workflows_are_valid_shell(action: str, tmp_path) -> None:
+    _assert_valid_shell(
+        build_fedora_gfx1013_command(action, tmp_path / "bc250-gfx1013-fix"),
+        f"fedora-gfx1013/{action}",
     )

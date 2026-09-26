@@ -19,6 +19,85 @@ from .gfx1013_compute_policy import (
 from .source_checkout import clone_or_update_commit
 
 _ACTIONS = frozenset({"install", "status", "uninstall"})
+#: Seconds between the progress lines printed while upstream builds.
+PROGRESS_INTERVAL = 30
+
+
+def build_progress_functions(qbuild: str) -> str:
+    """Shell functions that tell what upstream's build is doing from its logs.
+
+    ``bc250_build_detail`` prints one line for the phase in progress, or
+    nothing while a download or an extraction runs (curl draws its own
+    progress). ``bc250_build_progress`` prints that line every
+    ``PROGRESS_INTERVAL`` seconds. Only files written since
+    ``bc250_build_started`` count: a cancelled attempt leaves its logs behind.
+    """
+    return f'''bc250_build_root={qbuild}
+bc250_build_started="$(date +%s)"
+bc250_fresh() {{ [ -e "$1" ] && [ "$(stat -c %Y -- "$1" 2>/dev/null || echo 0)" -ge "$bc250_build_started" ]; }}
+bc250_build_detail() {{
+  local step
+  if bc250_fresh "$bc250_build_root/mesa-build.log"; then
+    if grep -q 'Installing files' "$bc250_build_root/mesa-build.log" 2>/dev/null; then
+      echo "Mesa/RADV: staging the finished build"
+    else
+      step="$(grep -o '^\\[[0-9]*/[0-9]*\\]' "$bc250_build_root/mesa-build.log" 2>/dev/null | tail -n 1 | tr -d '[]' || true)"
+      echo "Mesa/RADV: step ${{step:-0/?}} compiled"
+    fi
+  elif bc250_fresh "$bc250_build_root/mesa-setup.log"; then
+    echo "Mesa/RADV: configuring the build"
+  elif bc250_fresh "$bc250_build_root/artifacts/cu-mode"; then
+    # The kernel half is done; Mesa is being fetched and unpacked.
+    return 0
+  elif bc250_fresh "$bc250_build_root/artifacts/amdgpu.ko.xz"; then
+    # The module keeps its debug information (about 800 MB), so xz -9
+    # alone takes minutes.
+    echo "kernel module: compressing amdgpu.ko, $(( $(stat -c %s -- "$bc250_build_root/artifacts/amdgpu.ko.xz" 2>/dev/null || echo 0) / 1048576 )) MB written"
+  elif bc250_fresh "$bc250_build_root/kernel-build.log"; then
+    echo "kernel module: $(grep -c 'CC \\[M\\]' "$bc250_build_root/kernel-build.log" 2>/dev/null || true) files compiled"
+  fi
+}}
+bc250_build_progress() {{
+  local detail elapsed
+  # The sleep must not hold the output pipe: killed with its loop, an
+  # orphaned sleep kept the workflow open until it woke up.
+  while sleep {PROGRESS_INTERVAL} </dev/null >/dev/null 2>&1; do
+    detail="$(bc250_build_detail)"
+    [ -n "$detail" ] || continue
+    elapsed=$(( $(date +%s) - bc250_build_started ))
+    printf '    ... %s (%dm%02ds)\\n' "$detail" $(( elapsed / 60 )) $(( elapsed % 60 ))
+  done
+}}'''
+
+
+def _build_with_progress(qdest: str, qbuild: str) -> str:
+    """``install.sh build``, with a progress line every half minute.
+
+    Upstream sends the compiler output to log files, so the terminal said
+    "kernel module: building" and then nothing for minutes while about a
+    thousand files compiled and the module was compressed, and the same again
+    for Mesa. Users took that for a hang and cancelled builds that were
+    working. A background loop reads those same logs; the installer itself is
+    not edited for it.
+    """
+    return f'''echo "[INFO] Building the kernel module and Mesa/RADV takes about 10-20 minutes on a BC-250."
+echo "[INFO] The compilers write to log files, so a progress line is printed every {PROGRESS_INTERVAL} seconds. Do not cancel the build."
+{build_progress_functions(qbuild)}
+bc250_build_progress &
+bc250_build_watch=$!
+bc250_build_status=0
+{qdest}/install.sh build || bc250_build_status=$?
+kill "$bc250_build_watch" 2>/dev/null || true
+if [ "$bc250_build_status" -ne 0 ]; then
+  for bc250_log in mesa-build.log mesa-setup.log kernel-build.log; do
+    if bc250_fresh "$bc250_build_root/$bc250_log"; then
+      echo "---- last lines of $bc250_build_root/$bc250_log ----"
+      tail -n 30 "$bc250_build_root/$bc250_log"
+      break
+    fi
+  done
+  exit "$bc250_build_status"
+fi'''
 
 
 def build_fedora_gfx1013_command(action: str, destination: str | Path) -> str:
@@ -110,8 +189,17 @@ fi''',
             'echo; echo "=========================================================================="; echo "  BC-250 GFX1013 - kernel and Mesa/RADV stack"; echo "  complete upstream lifecycle"; echo "=========================================================================="; echo',
             'echo "[INFO] Kernel-only and Mesa-only installation are intentionally not offered: upstream requires both halves together."',
             'echo "[INFO] Mesh/task patches 0002 and 0003 remain disabled because upstream reports unrecoverable GPU hangs."',
+            # The build outlasts sudo's password cache (five minutes by
+            # default), so the install at the end would ask again, long after
+            # the user stepped away, and the prompt times out. Ask once and
+            # keep it fresh until the end, as the source-build workflow does.
+            'echo "[INFO] Your password is asked once now; the install at the end reuses it."',
+            "sudo -v",
+            "( while sleep 50 </dev/null >/dev/null 2>&1; do sudo -n -v >/dev/null 2>&1 || exit 0; done ) &",
+            "bc250_sudo_keepalive=$!",
+            "trap 'kill \"$bc250_sudo_keepalive\" \"${bc250_build_watch:-}\" 2>/dev/null || true' EXIT",
             f"sudo {qdest}/install.sh deps",
-            f"{qdest}/install.sh build",
+            _build_with_progress(qdest, shlex.quote(str(destination / "build"))),
             f"sudo {qdest}/install.sh install",
             'echo "BC250_REBOOT_REQUIRED=1"',
             'echo "OK: the patched entry is selected for the next boot only; the stock Fedora entry remains the default."',

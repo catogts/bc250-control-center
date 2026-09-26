@@ -229,3 +229,21 @@ def test_formal_style_swaps_palette_squares_corners_and_keeps_pills_round():
         assert _contrast(theme.COLORS["tooltip_text"], theme.COLORS["tooltip_bg"]) >= 7.0
     finally:
         theme.configure_theme("light", "blue", "comfortable", 100, "standard")
+
+
+@pytest.mark.parametrize("accent", sorted(theme.ACCENTS))
+@pytest.mark.parametrize("style", theme.STYLES)
+@pytest.mark.parametrize("name", theme.THEMES)
+def test_words_on_the_console_ground_meet_aa_in_every_theme(name, style, accent):
+    """The console is dark in the light themes too.
+
+    Its menu and the selected tab of several are drawn on its ground, where
+    the light theme's text measured about 1:1 and its tones 2:1 to 3:1.
+    """
+    palette = theme.theme_palette(name, accent, style)
+    ground = palette["console_bg"]
+    for token in ("console_text", "console_muted", "console_blue",
+                  "console_green", "console_orange", "console_red"):
+        assert _contrast(palette[token], ground) >= 4.5, (name, style, accent, token)
+    # Still told apart from the text: the menu's disabled items use it.
+    assert _contrast(palette["console_text"], palette["console_muted"]) > 1.5
