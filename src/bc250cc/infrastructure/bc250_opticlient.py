@@ -187,6 +187,32 @@ def _game_executables(install: Path) -> list[Path]:
     return found
 
 
+def _linked_component(path: Path) -> Path | None:
+    """The first folder in ``path``, up to ``/``, that is a symlink.
+
+    The client refuses to patch a game reached through one ("Use a regular
+    game folder and files; linked path: ..."). Steam itself does not care, so
+    a library added as ``/mnt/games`` on Fedora Atomic, where ``/mnt`` links to
+    ``var/mnt``, looks fine everywhere except in the client.
+    """
+    for candidate in (path, *path.parents):
+        try:
+            if candidate.is_symlink():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def _real_library(install: Path) -> Path:
+    """The real folder to add in the launcher: the Steam library, or the game."""
+    real = _unlinked(install)
+    if "steamapps" in real.parts:
+        index = real.parts.index("steamapps")
+        return Path(*real.parts[:index]) if index else real
+    return real
+
+
 def _adapter_in(directory: Path) -> str:
     if not (directory / "OptiScaler.ini").is_file():
         return ""
@@ -202,7 +228,9 @@ def opticlient_games(*, home: Path | None = None) -> list[dict]:
     Read-only. ``state`` is ``not-installed`` (no OptiScaler beside any game
     executable), ``needs-launch-option`` (Steam game without the override for
     its adapter), ``ready``, ``other-launcher`` (the loading option belongs
-    in Heroic/Lutris/Bottles) or ``unknown-adapter``.
+    in Heroic/Lutris/Bottles), ``unknown-adapter`` or ``linked-folder`` (not
+    installed yet, and the client will refuse the folder: it is reached
+    through a symlink; ``real_path`` is the folder to use instead).
     """
     try:
         records = json.loads((opticlient_records() / "games.json").read_text(encoding="utf-8"))
@@ -245,8 +273,15 @@ def opticlient_games(*, home: Path | None = None) -> list[dict]:
             "location": _relative(location, install),
             "suggested_executable": _relative(suggested, install),
             "launch_options": "",
+            "linked_path": "",
+            "real_path": "",
         }
-        if not adapter:
+        linked = None if adapter else _linked_component(install)
+        if linked is not None:
+            entry["state"] = "linked-folder"
+            entry["linked_path"] = str(linked)
+            entry["real_path"] = str(_real_library(install))
+        elif not adapter:
             entry["state"] = "not-installed"
         elif adapter == "unknown":
             entry["state"] = "unknown-adapter"

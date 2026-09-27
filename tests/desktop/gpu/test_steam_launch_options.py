@@ -177,3 +177,58 @@ def test_a_damaged_profile_is_named_and_left_as_it_was(tmp_path):
     assert diagnose_error(str(raised.value)).code == "BC250-CONFIG-001"
     assert config.read_text(encoding="utf-8") == damaged
     assert not list(config.parent.glob("localconfig.vdf.bc250-*"))
+
+
+@pytest.mark.parametrize(
+    ("distribution", "link", "target", "library"),
+    [
+        # Fedora Atomic (Bazzite, Silverblue, Kinoite): /home and /mnt link into /var.
+        ("bazzite-home", "home", "var/home", "home/user/.local/share/Steam"),
+        ("bazzite-mnt", "mnt", "var/mnt", "mnt/games/SteamLibrary"),
+        # SteamOS: the old SD card mount name links to the labelled one.
+        ("steamos-sd", "run/media/mmcblk0p1", "deck/SD", "run/media/mmcblk0p1"),
+        # Debian, Ubuntu or Fedora Workstation: a library behind a user symlink.
+        ("debian-games", "home/user/Games", "../../data/Games", "home/user/Games/SteamLibrary"),
+    ],
+)
+def test_a_game_behind_a_linked_folder_names_the_real_one(
+    tmp_path, monkeypatch, distribution, link, target, library,
+):
+    root = tmp_path / distribution
+    linked = root / link
+    real_target = (linked.parent / target)
+    real_target.mkdir(parents=True)
+    linked.parent.mkdir(parents=True, exist_ok=True)
+    linked.symlink_to(target)
+    game = root / library / "steamapps/common/Cyberpunk 2077"
+    (game / "bin/x64").mkdir(parents=True)
+    (game / "bin/x64/Cyberpunk2077.exe").write_bytes(b"MZ")
+    records = tmp_path / "records"
+    records.mkdir()
+    (records / "games.json").write_text(json.dumps([
+        {"Name": "Cyberpunk 2077", "InstallPath": str(game), "AppId": "1091500", "HasUpscaler": True},
+    ]), encoding="utf-8")
+    monkeypatch.setattr(bc250_opticlient, "opticlient_records", lambda: records)
+
+    [entry] = bc250_opticlient.opticlient_games(home=_steam_home(tmp_path))
+
+    assert entry["state"] == "linked-folder"
+    assert entry["linked_path"] == str(linked)
+    real_library = Path(entry["real_path"])
+    assert (real_library / "steamapps/common/Cyberpunk 2077").resolve() == game.resolve()
+    assert not any(p.is_symlink() for p in (real_library, *real_library.parents))
+
+
+def test_a_regular_folder_is_not_flagged(tmp_path, monkeypatch):
+    game = tmp_path / "SteamLibrary/steamapps/common/Cyberpunk 2077"
+    (game / "bin/x64").mkdir(parents=True)
+    records = tmp_path / "records"
+    records.mkdir()
+    (records / "games.json").write_text(json.dumps([
+        {"Name": "Cyberpunk 2077", "InstallPath": str(game), "AppId": "1091500", "HasUpscaler": True},
+    ]), encoding="utf-8")
+    monkeypatch.setattr(bc250_opticlient, "opticlient_records", lambda: records)
+
+    [entry] = bc250_opticlient.opticlient_games(home=_steam_home(tmp_path))
+
+    assert entry["state"] == "not-installed" and entry["real_path"] == ""

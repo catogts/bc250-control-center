@@ -32,6 +32,11 @@
   </categories>
   <url type="homepage">https://github.com/movacx/bc250-control-center</url>
   <releases>
+    <release version="1.20.2" date="2026-09-27">
+      <description>
+        <p>FSR4 (OptiScaler Client): se abre correctamente en Bazzite y demás Fedora Atomic, donde /home es un enlace a /var/home.</p>
+      </description>
+    </release>
     <release version="1.20.1" date="2026-09-27">
       <description>
         <p>Firmware (BIOS): el USB ya no se expulsa al terminar; queda desmontado y listo para retirar.</p>

@@ -2587,6 +2587,8 @@ class PreparationSidebar(QFrame):
                            "Add WINEDLLOVERRIDES with {dll}=n,b in the launcher that runs this game; the guide shows where."),
         "unknown-adapter": ("Check the adapter", "orange",
                             "OptiScaler is in this game under a file name this panel does not recognise; see the guide."),
+        "linked-folder": ("Linked folder", "orange",
+                          "OptiScaler Client refuses folders reached through a link ({link}). Add this library again in its launcher from the real folder: {path}"),
     }
 
     def _render_fsr4_games(self, games: list[dict]) -> None:
@@ -2619,7 +2621,12 @@ class PreparationSidebar(QFrame):
         layout.setVerticalSpacing(2)
         name = _label(str(game.get("name") or ""), "dashboardCompatibilityLabel", wrap=False)
         status = PillLabel(chip, tone)
-        text = tr_format(detail, dll=str(game.get("adapter") or "dxgi.dll").removesuffix(".dll"))
+        text = tr_format(
+            detail,
+            dll=str(game.get("adapter") or "dxgi.dll").removesuffix(".dll"),
+            link=str(game.get("linked_path") or ""),
+            path=str(game.get("real_path") or ""),
+        )
         executable = str(game.get("suggested_executable") or "")
         if state == "not-installed" and executable:
             text = f"{text} {tr_format('If it asks for the executable, choose {path}.', path=executable)}"
