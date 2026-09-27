@@ -443,21 +443,13 @@ class SistemaRepository(PrivilegeRepository, TerminalRepository, DependenciasRep
     def firmware_instalado(self):
         """The BIOS image the board runs, identified once per process.
 
-        DMI, the EFI variable names and the VRAM carve-out only change across
-        a reboot, and this is asked on every performance sample.
+        DMI and the EFI variable names only change across a reboot, and this
+        is asked on every performance sample.
         """
         cached = getattr(self, '_installed_bios_cache', None)
         if cached is not None:
             return cached
-        gpu = self._gpu_device_path()
-        try:
-            cores = int(psutil.cpu_count(logical=False) or 0)
-        except (TypeError, ValueError, OSError):
-            cores = 0
-        installed = read_installed_bios(
-            vram_total_bytes=int((self._leer_entero(gpu / 'mem_info_vram_total') if gpu else 0) or 0),
-            physical_cores=cores,
-        )
+        installed = read_installed_bios()
         self._installed_bios_cache = {
             'bios_version': installed.version,
             'bios_variant': installed.variant,

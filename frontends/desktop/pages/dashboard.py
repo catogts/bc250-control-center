@@ -974,7 +974,7 @@ class DashboardPage(QWidget):
             return
         variant = self.BIOS_VARIANT_LABELS.get(state.bios_variant, "")
         if not variant and state.bios_version.upper().startswith("P3"):
-            variant = "Stock or Chipset Menu"
+            variant = "Stock or modded"
         reading.set_value(state.bios_version, variant)
         reading.setToolTip(tr(state.bios_evidence) if state.bios_evidence else "")
 

@@ -92,21 +92,50 @@
     <button id="next" type="button" aria-label="Next screenshot">&#10095;</button>
   </main>
   <script>
-    const photos = [
-      ['dashboard', '../assets/screenshots/dashboard-overview.png', 'BC250 Control Center dashboard'],
-      ['gpu', '../assets/screenshots/gpu-governor.png', 'GPU governor'],
-      ['cpu', '../assets/screenshots/cpu-tuning.png', 'CPU tuning'],
-      ['decky', '../assets/screenshots/decky-quick-access.png', 'BC250 Decky Quick Access · board setup'],
-      ['decky-monitoring', '../assets/screenshots/decky-quick-access-monitoring.png', 'BC250 Decky Quick Access · monitoring'],
-      ['compute', '../assets/screenshots/compute-units.png', 'Compute Units'],
-      ['compute-monitor', '../assets/screenshots/compute-units-monitor.png', 'System monitoring'],
-      ['memory', '../assets/screenshots/memory-swap.png', 'Memory and swap'],
-      ['fans', '../assets/screenshots/fan-control.png', 'Fan control'],
-      ['preparation', '../assets/screenshots/dependency-preparation.png', 'Dependency preparation'],
+    // Order and captions for the screenshots this page knows. Any other
+    // picture in assets/screenshots still appears, after these, titled from
+    // its file name: the workflow publishes the folder and lists it in
+    // photos.json, so adding a file is all a new screenshot needs.
+    const KNOWN = [
+      ['dashboard', 'dashboard-overview.png', 'BC250 Control Center dashboard'],
+      ['cpu', 'cpu-tuning.png', 'CPU / SMU tuning'],
+      ['gpu', 'gpu-governor.png', 'GPU governor'],
+      ['compute', 'compute-units.png', 'Compute Units'],
+      ['monitor', 'monitor-1.png', 'Performance monitoring'],
+      ['sensors', 'monitor-2.png', 'Performance · sensors'],
+      ['fans', 'fan-control.png', 'Fan control'],
+      ['firmware', 'firmware-bios.png', 'Firmware (BIOS)'],
+      ['memory', 'memory-swap.png', 'Memory and swap'],
+      ['preparation', 'dependency-preparation.png', 'Dependency preparation'],
+      ['decky', 'decky-quick-access.png', 'BC250 Decky Quick Access · board setup'],
+      ['decky-monitoring', 'decky-quick-access-monitoring.png', 'BC250 Decky Quick Access · monitoring'],
     ];
+    // Links shared before a screenshot was renamed keep opening it.
+    const ALIASES = { 'compute-monitor': 'monitor' };
+    const FOLDER = '../assets/screenshots/';
+
+    function titleFrom(file) {
+      const words = file.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
+      return words.charAt(0).toUpperCase() + words.slice(1);
+    }
+
+    function photosFrom(files) {
+      const known = KNOWN.filter(([, file]) => files.includes(file));
+      const extra = files
+        .filter(file => !KNOWN.some(([, name]) => name === file))
+        .map(file => [file.replace(/\.[^.]+$/, ''), file, titleFrom(file)]);
+      return [...known, ...extra].map(([key, file, alt]) => [key, FOLDER + file, alt]);
+    }
+
+    let photos = photosFrom(KNOWN.map(([, file]) => file));
     const image = document.querySelector('#screenshot');
     const close = document.querySelector('.close');
-    let current = Math.max(0, photos.findIndex(([key]) => key === location.hash.slice(1)));
+    let current = 0;
+
+    function indexOfHash() {
+      const key = location.hash.slice(1);
+      return photos.findIndex(([name]) => name === (ALIASES[key] || key));
+    }
 
     function render(index, updateHash = true) {
       current = (index + photos.length) % photos.length;
@@ -123,11 +152,16 @@
       if (event.key === 'ArrowRight') render(current + 1);
       if (event.key === 'Escape') location.href = close.href;
     });
-    window.addEventListener('hashchange', () => {
-      const index = photos.findIndex(([key]) => key === location.hash.slice(1));
-      render(index >= 0 ? index : 0, false);
-    });
-    render(current, false);
+    window.addEventListener('hashchange', () => render(Math.max(0, indexOfHash()), false));
+    render(Math.max(0, indexOfHash()), false);
+    fetch('photos.json', { cache: 'no-cache' })
+      .then(response => (response.ok ? response.json() : Promise.reject(response.status)))
+      .then(files => {
+        if (!Array.isArray(files) || !files.length) return;
+        photos = photosFrom(files.filter(file => typeof file === 'string'));
+        render(Math.max(0, indexOfHash()), false);
+      })
+      .catch(() => {});
   </script>
 </body>
 </html>

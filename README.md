@@ -7,13 +7,13 @@ Linux control center for the AMD BC-250. It brings system monitoring, GPU contro
 <table>
   <tr>
     <td width="7%" align="center" valign="middle">
-      <a href="https://movacx.github.io/bc250-control-center/gallery/#preparation" aria-label="Previous screenshot" title="Previous screenshot"><kbd>&#10094;</kbd></a>
+      <a href="https://movacx.github.io/bc250-control-center/gallery/#decky-monitoring" aria-label="Previous screenshot" title="Previous screenshot"><kbd>&#10094;</kbd></a>
     </td>
     <td width="86%" align="center" valign="middle">
       <a href="https://movacx.github.io/bc250-control-center/gallery/#dashboard"><img src="assets/screenshots/dashboard-overview.png" alt="BC250 Control Center dashboard" width="100%"></a>
     </td>
     <td width="7%" align="center" valign="middle">
-      <a href="https://movacx.github.io/bc250-control-center/gallery/#decky" aria-label="Next screenshot" title="Next screenshot"><kbd>&#10095;</kbd></a>
+      <a href="https://movacx.github.io/bc250-control-center/gallery/#cpu" aria-label="Next screenshot" title="Next screenshot"><kbd>&#10095;</kbd></a>
     </td>
   </tr>
 </table>

@@ -32,6 +32,11 @@
   </categories>
   <url type="homepage">https://github.com/movacx/bc250-control-center</url>
   <releases>
+    <release version="1.20.0" date="2026-09-26">
+      <description>
+        <p>Nuevo módulo Firmware (BIOS) con USB de actualización, dashboard y monitorización rediseñados, temas Claro/Oscuro/Azul noche con estilo Formal, perfiles por juego y async compute en Decky, persistencia y exportación de perfiles de ventiladores, GFX1013 en CachyOS y Fedora, FSR4 por juego y actualización desde la propia aplicación.</p>
+      </description>
+    </release>
     <release version="1.19.0" date="2026-08-27">
       <description>
         <p>Rediseña el backend GPU de Cyan: separa rango solicitado, límite térmico y frecuencia observada; corrige el runtime SMU de Bazzite, conserva SMU/Kernel y fix-metrics/fix-freq como controles independientes, y habilita los safe-points experimentales superiores a 2000 MHz sin imponer un límite artificial.</p>

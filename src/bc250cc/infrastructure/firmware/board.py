@@ -17,12 +17,11 @@ from bc250cc.shared.paths import state_root
 DMI_ROOT = Path("/sys/class/dmi/id")
 EFIVARS_ROOT = Path("/sys/firmware/efi/efivars")
 
-#: ASRock's own Setup hides a UMA option that runs from 32 MB to 2 GB. Only
-#: the AMD CBS menu the Chipset Menu mod opens goes past it (up to 12 GB), so
-#: a larger carve-out is proof that menu was used.
-ASROCK_UMA_MAX_BYTES = 2 * 1024 ** 3
-#: The die has eight cores and ASRock leaves six running.
-STOCK_CPU_CORES = 6
+# The VRAM carve-out is deliberately not evidence: the CMOS UMA_SIZE write
+# (fanoush/bc250_memcfg, and this application's VRAM setting) sets any size
+# on ASRock's own P3.00 and P5.00, so a large VRAM says nothing about which
+# image is flashed. Nor are eight running cores: the SMU core unlock and its
+# EFI shim bring them back on stock firmware too.
 #: Where the firmware page notes the kit it last wrote.
 KIT_RECORD_NAME = "firmware-kit.json"
 
@@ -129,8 +128,6 @@ def identify_installed_bios(
     board: BoardFirmware,
     *,
     efi_variables: tuple[str, ...] = (),
-    vram_total_bytes: int = 0,
-    physical_cores: int = 0,
     prepared_kit: dict[str, str] | None = None,
 ) -> InstalledBios:
     """Name the image as far as the evidence goes, and never further."""
@@ -145,7 +142,11 @@ def identify_installed_bios(
     if major != "P3":
         return InstalledBios(version, evidence="Not a version any known BC-250 image reports.")
 
-    if any("meimei" in name.lower() for name in efi_variables):
+    # MeiMeiDXE v3 keeps its menu in EFI variables of its own, named
+    # MeiMeiDXEv3CoreVar, MeiMeiDXEv3SmuUnlockVar... under the vendor GUID
+    # 49cc168d-e8b0-4613-a807-16969986726f (read on a flashed board). Their
+    # names are world-readable; their contents are not needed.
+    if any(name.lower().startswith("meimeidxe") for name in efi_variables):
         return InstalledBios(
             version, _P3_VARIANTS["meimeidxe-v3"], "meimeidxe-v3",
             "The firmware keeps MeiMeiDXE's own settings variable.",
@@ -161,32 +162,17 @@ def identify_installed_bios(
             version, _P3_VARIANTS[kit["family"]], kit["family"],
             "This board changed to P3.00 after this application prepared that USB.",
         )
-    if vram_total_bytes > ASROCK_UMA_MAX_BYTES:
-        # Both mods open the same CBS menu; MeiMeiDXE is the one that also
-        # brings the two factory-disabled cores back.
-        if physical_cores > STOCK_CPU_CORES:
-            return InstalledBios(
-                version, _P3_VARIANTS["meimeidxe-v3"], "meimeidxe-v3",
-                "VRAM is set above 2 GB, which only the unlocked AMD CBS menu offers, "
-                "and all eight cores are running.",
-            )
-        return InstalledBios(
-            version, _P3_VARIANTS["p3-chipset-menu"], "p3-chipset-menu",
-            "VRAM is set above 2 GB, which only the unlocked AMD CBS menu offers.",
-        )
     return InstalledBios(
         version,
         evidence=(
-            "ASRock's P3.00 and the Chipset Menu mod report the same version, and "
-            "with the default VRAM nothing on the running system tells them apart."
+            "ASRock's P3.00, the Chipset Menu mod and MeiMeiDXE report the same "
+            "version, and nothing readable without root tells them apart."
         ),
     )
 
 
 def read_installed_bios(
     *,
-    vram_total_bytes: int = 0,
-    physical_cores: int = 0,
     dmi_root: Path = DMI_ROOT,
     efivars_root: Path = EFIVARS_ROOT,
     kit_path: Path | None = None,
@@ -194,7 +180,5 @@ def read_installed_bios(
     return identify_installed_bios(
         read_board_firmware(dmi_root),
         efi_variables=efi_variable_names(efivars_root),
-        vram_total_bytes=vram_total_bytes,
-        physical_cores=physical_cores,
         prepared_kit=load_prepared_kit(kit_path),
     )

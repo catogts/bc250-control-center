@@ -50,8 +50,8 @@ def test_the_bios_sits_in_its_own_group_right_under_swap(page):
     ("P5.00", "ASRock", ("P5.00", "ASRock stock")),
     ("P3.00", "Chipset Menu", ("P3.00", "Chipset Menu")),
     ("P3.00", "MeiMeiDXE v3", ("P3.00", "MeiMeiDXE v3")),
-    # DMI's P3.00 is shared by two images nothing here separates: say both.
-    ("P3.00", "", ("P3.00", "Stock or Chipset Menu")),
+    # DMI's P3.00 is shared by three images nothing here separates: say so.
+    ("P3.00", "", ("P3.00", "Stock or modded")),
 ])
 def test_the_row_names_the_image_and_keeps_the_evidence_a_hover_away(page, version, variant, shown):
     value, detail, tooltip = _bios(page, version, variant)

@@ -24,34 +24,37 @@ from bc250cc.infrastructure.firmware.board import (
 from bc250cc.infrastructure.vrm_telemetry_reader import sondear_telemetria_vrm
 
 P3 = BoardFirmware(board="AMD BC-250", version="P3.00")
-GIB = 1024 ** 3
 
 
 @pytest.mark.parametrize("version, family", [("P2.00", "p2-stock"), ("P5.00", "p5-stock")])
 def test_versions_only_asrock_publishes_are_settled_by_dmi(version, family):
-    installed = identify_installed_bios(BoardFirmware(version=version), vram_total_bytes=8 * GIB)
+    installed = identify_installed_bios(BoardFirmware(version=version))
     assert (installed.version, installed.variant, installed.family) == (version, "ASRock", family)
 
 
 def test_p3_with_nothing_else_to_go_on_is_left_undecided():
-    installed = identify_installed_bios(P3, vram_total_bytes=512 * 1024 ** 2, physical_cores=6)
+    installed = identify_installed_bios(P3)
     assert (installed.variant, installed.family) == ("", "")
-    assert "same version" in installed.evidence
+    assert "same version" in installed.evidence and "MeiMeiDXE" in installed.evidence
 
 
 def test_meimeidxe_is_told_by_its_own_efi_variable():
-    names = ("AmdSetup-3a997502", "MeiMeiDXEv3Config-0f5f6f7a")
+    # As a flashed board lists them in /sys/firmware/efi/efivars.
+    guid = "49cc168d-e8b0-4613-a807-16969986726f"
+    names = ("AmdSetup-3a997502-647a-4c82-998e-52ef9486a247", f"MeiMeiDXEv3CoreVar-{guid}",
+             f"MeiMeiDXEv3SmuUnlockVar-{guid}")
     installed = identify_installed_bios(P3, efi_variables=names)
     assert installed.family == "meimeidxe-v3"
 
 
-def test_vram_beyond_asrocks_menu_means_the_cbs_menu_was_opened():
-    chipset = identify_installed_bios(P3, vram_total_bytes=4 * GIB, physical_cores=6)
-    assert chipset.family == "p3-chipset-menu"
-    eight_cores = identify_installed_bios(P3, vram_total_bytes=4 * GIB, physical_cores=8)
-    assert eight_cores.family == "meimeidxe-v3"
-    # 2 GB is still within ASRock's own (hidden) UMA option.
-    assert identify_installed_bios(P3, vram_total_bytes=2 * GIB).family == ""
+def test_the_reader_does_not_take_vram_or_cores_as_evidence():
+    """The CMOS UMA_SIZE write sets any VRAM on ASRock's own P3.00, and the
+    SMU core unlock brings eight cores back on it too: neither is asked."""
+    import inspect
+
+    for function in (identify_installed_bios, read_installed_bios):
+        parameters = inspect.signature(function).parameters
+        assert not {"vram_total_bytes", "physical_cores"} & set(parameters)
 
 
 def test_a_kit_counts_only_when_the_version_changed_to_the_kits(tmp_path):
@@ -86,7 +89,7 @@ def test_the_whole_reader_on_a_fake_sysfs(tmp_path):
     (dmi / "board_name").write_text("AMD BC-250\n", encoding="utf-8")
     efivars = tmp_path / "efivars"
     efivars.mkdir()
-    (efivars / "MeiMeiDXEv3Cores-1234").write_bytes(b"\x07\x00\x00\x00\xff")
+    (efivars / "MeiMeiDXEv3CoreFactoryMaskVar-49cc168d-e8b0-4613-a807-16969986726f").write_bytes(b"\x07\x00\x00\x00\xff")
     installed = read_installed_bios(dmi_root=dmi, efivars_root=efivars, kit_path=tmp_path / "none.json")
     assert (installed.version, installed.variant) == ("P3.00", "MeiMeiDXE v3")
 

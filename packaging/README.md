@@ -8,6 +8,21 @@ modify the host, publish a release, or invoke hardware helpers.
 - `scripts/build-rpm.sh [output-dir]` creates the single noarch RPM used by
   Fedora, Nobara and Bazzite/Fedora Atomic.
 - `scripts/build-deb.sh [output-dir]` creates the Ubuntu/Debian `all` package.
+- `scripts/build-release.sh [output-dir]` runs all four into `dist/<version>/`
+  and writes `SHA256SUMS.txt`: the files a GitHub release carries. Without
+  `dpkg-deb` it runs only that tool in a local `debian:trixie` podman image.
+
+## Publishing a release
+
+1. Bump `VERSION`, the `version` of `integrations/decky/bc250-quick-access/package.json`
+   and add a `<release>` to the AppStream metainfo (the builders refuse a mismatch).
+2. `bash packaging/scripts/build-release.sh`
+3. Commit and push to `main`, then create the GitHub release `v<version>` and
+   attach every file in `dist/<version>/`. The application's update check
+   reads `VERSION` on `main`, so publish the release right after the push.
+4. `bash packaging/arch/aur/publish-aur.sh` prepares the AUR update of
+   `bc250-control-center-git` (pkgver from the pushed `main`, `.SRCINFO`, commit);
+   `--push` publishes it. It needs an SSH key registered on the AUR account.
 
 Install the Debian artifact with
 `sudo apt install ./bc250-control-center_*.deb`; APT resolves the PyQt6, Qt SVG,
