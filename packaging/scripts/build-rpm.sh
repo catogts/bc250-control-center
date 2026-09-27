@@ -103,12 +103,14 @@ SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" rpmbuild -bb \
   --define "clamp_mtime_to_source_date_epoch 1" \
   --define "use_source_date_epoch_as_buildtime 1" \
   "$work/top/SPECS/bc250-control-center.spec"
-find "$work/top/RPMS" -type f -name '*.rpm' -exec cp -f -- {} "$OUTPUT_DIR/" \;
-for rpm in "$OUTPUT_DIR"/*.rpm; do
-  rpm_name="${rpm##*/}"
-  (
-    cd -- "$OUTPUT_DIR"
-    sha256sum "$rpm_name" > "$rpm_name.sha256"
-  )
-done
-printf '%s\n' "$OUTPUT_DIR"/*.rpm
+# The file is named after the release alone (1.20.0, not 1.20.0-1); the
+# package revision stays inside the metadata, where the package manager needs it.
+built_rpm="$(find "$work/top/RPMS" -type f -name '*.noarch.rpm' -print -quit)"
+[[ -n "$built_rpm" ]] || { echo "rpmbuild produced no noarch package." >&2; exit 70; }
+target="$OUTPUT_DIR/bc250-control-center-$VERSION.noarch.rpm"
+cp -f -- "$built_rpm" "$target"
+(
+  cd -- "$OUTPUT_DIR"
+  sha256sum "${target##*/}" > "${target##*/}.sha256"
+)
+printf '%s\n' "$target"

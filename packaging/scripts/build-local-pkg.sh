@@ -50,7 +50,9 @@ optdepend = pciutils: PCI and amdgpu diagnostics
 optdepend = stress: CPU tuning stability checks
 optdepend = vulkan-tools: Vulkan capability diagnostics
 EOF
-target="$OUTPUT_DIR/bc250-control-center-$VERSION-$PKG_RELEASE-any.pkg.tar.zst"
+# The file is named after the release alone (1.20.0, not 1.20.0-1); the
+# package revision stays inside the metadata, where the package manager needs it.
+target="$OUTPUT_DIR/bc250-control-center-$VERSION-any.pkg.tar.zst"
 temporary="$target.tmp.$$"
 # Pacman looks up .PKGINFO by its exact archive-root name. Archiving `.` would
 # prefix every member with `./` (including `./.PKGINFO`), which libalpm treats

@@ -101,7 +101,7 @@ def test_deb_dependencies_support_split_and_legacy_polkit_packages(tmp_path):
     output = tmp_path / "dist"
 
     _run("bash", ROOT / "packaging/scripts/build-deb.sh", output)
-    package = output / f"bc250-control-center_{VERSION}-1_all.deb"
+    package = output / f"bc250-control-center_{VERSION}_all.deb"
     depends = _run("dpkg-deb", "--field", package, "Depends").stdout.strip()
 
     assert "python3-pyqt6" in depends
@@ -168,7 +168,7 @@ def test_arch_package_has_canonical_metadata_and_is_accepted_by_pacman(tmp_path)
 
     output = tmp_path / "dist"
     _run("bash", ROOT / "packaging/scripts/build-local-pkg.sh", output)
-    package = output / f"bc250-control-center-{VERSION}-1-any.pkg.tar.zst"
+    package = output / f"bc250-control-center-{VERSION}-any.pkg.tar.zst"
 
     # pacman translates its field labels, so the assertions below only hold
     # under a C locale. Without this the test passed on an English developer

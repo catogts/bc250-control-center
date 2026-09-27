@@ -65,7 +65,9 @@ fi
 EOF
 chmod 0755 "$work/root/DEBIAN/preinst" "$work/root/DEBIAN/postinst" "$work/root/DEBIAN/prerm"
 
-target="$OUTPUT_DIR/bc250-control-center_${VERSION}-${DEB_RELEASE}_all.deb"
+# The file is named after the release alone (1.20.0, not 1.20.0-1); the
+# package revision stays inside the metadata, where the package manager needs it.
+target="$OUTPUT_DIR/bc250-control-center_${VERSION}_all.deb"
 temporary="$target.tmp.$$"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(stat -c %Y "$ROOT_DIR/packaging/common/io.github.movacx.bc250-control-center.metainfo.xml")}" \
   dpkg-deb --root-owner-group --build "$work/root" "$temporary"
