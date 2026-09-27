@@ -2,72 +2,162 @@
 
 [English](../../README.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · [Русский](README.ru.md) · [Українська](README.uk.md) · [Français](README.fr.md) · [Polski](README.pl.md) · [中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-Linux-Kontrollzentrum für die AMD BC-250: Überwachung, GPU-Steuerung, CPU-Tuning, Compute Units und Lüfter in einer Desktop-Anwendung.
+Kontrollzentrum für die AMD BC-250 unter Linux. Überwachung, GPU-Steuerung, CPU-Tuning, Compute Units, Lüfter und BIOS-Aktualisierung in einer Desktop-Anwendung – mit klaren Grenzen und Prüfungen vor jeder Änderung an der Hardware.
 
 ## Screenshots
 
-[<img src="../../assets/screenshots/dashboard-overview.png" alt="BC250 Control Center Dashboard" width="100%">](https://movacx.github.io/bc250-control-center/gallery/#dashboard)
+[<img src="../../assets/screenshots/dashboard-overview.png" alt="BC250 Control Center Übersicht" width="100%">](https://movacx.github.io/bc250-control-center/gallery/#dashboard)
+
+[Alle Screenshots ansehen →](https://movacx.github.io/bc250-control-center/gallery/#dashboard)
 
 ## Installation
 
-```bash
-# Aus dem Quellcode
-git clone https://github.com/movacx/bc250-control-center.git
-cd bc250-control-center/scripts
-./install-local.sh
+### Arch, CachyOS und SteamOS (AUR)
 
-# Arch, CachyOS und Manjaro
+```bash
 yay -S bc250-control-center-git
 ```
 
-Zum Entfernen einer lokalen Installation `./uninstall-local.sh` im selben Ordner ausführen.
+### Release-Pakete
 
-Pakete gibt es im [neuesten Release](https://github.com/movacx/bc250-control-center/releases). Fedora, Nobara und Bazzite verwenden dasselbe `noarch`-RPM:
+Lade das Paket für dein System aus dem [neuesten Release](https://github.com/movacx/bc250-control-center/releases/latest) herunter:
+
+| System | Datei |
+|---|---|
+| Arch / CachyOS / Manjaro | `bc250-control-center-<Version>-any.pkg.tar.zst` |
+| Fedora / Nobara / Bazzite | `bc250-control-center-<Version>.noarch.rpm` |
+| Ubuntu / Debian | `bc250-control-center_<Version>_all.deb` |
 
 ```bash
-sudo dnf install ./bc250-control-center-*.rpm        # Fedora / Nobara
-sudo rpm-ostree install ./bc250-control-center-*.rpm # Bazzite / Fedora Atomic
-systemctl reboot                                      # nach rpm-ostree
-sudo apt install ./bc250-control-center_*.deb         # Ubuntu / Debian
+# Arch / CachyOS / Manjaro
+sudo pacman -U ./bc250-control-center-*-any.pkg.tar.zst
+
+# Fedora / Nobara
+sudo dnf install ./bc250-control-center-*.rpm
+
+# Bazzite / Fedora Atomic: dasselbe RPM, danach in das neue Deployment neu starten
+sudo rpm-ostree install ./bc250-control-center-*.rpm
+systemctl reboot
+
+# Ubuntu / Debian
+sudo apt install ./bc250-control-center_*.deb
 ```
+
+Unter Debian und Ubuntu `apt install` statt `dpkg -i` verwenden: So lädt APT auch die Abhängigkeiten. Hat `dpkg -i` das Paket nur halb installiert, repariert `sudo apt --fix-broken install` das.
+
+### Aktualisierungen
+
+Du musst nicht auf diese Seite zurückkommen. Wenn eine neue Version erscheint, meldet die Übersicht das, zeigt die Änderungen und installiert sie mit dem Paketmanager deines Systems, nachdem sie die SHA-256 geprüft hat.
 
 ## Erster Start
 
-1. `bc250-control-center` öffnen.
-2. Im Dashboard **Prepare dependencies** wählen.
-3. Status des Moduls prüfen, bevor eine Änderung angewendet wird.
+1. Öffne **BC250 Control Center**.
+2. Der Willkommensbildschirm fragt nach Sprache, Aussehen und Seitenleiste und bietet an, die Werkzeuge zu installieren, die die Platine braucht. Alles lässt sich später in den **Einstellungen** ändern.
+3. Wenn du möchtest, folge der geführten Tour: Sie besucht jedes Modul und erklärt, was es an der Platine ändert.
+
+Prüfe vor jeder Änderung den Status des Moduls: Er sagt, was bereit ist, was fehlt und warum.
 
 ## Funktionen
 
-- Live-Werte für CPU, GPU, Speicher, Datenträger, Netzwerk, Temperaturen und Lüfter.
-- GPU-Governor, CPU-Tuning und experimentelles Freischalten von Kernen.
-- Steuerung von 24–40 Compute Units, PWM und Lüfterkurven.
-- Diagnose, Verlauf, CSV-Export, UI-Skalierung und Controller-Navigation.
+**Übersicht und Überwachung**
+- Übersicht mit Prozessor, Grafik und Kühlung, Kernen live, der Temperatur jedes GDDR6-Chips, den Stromversorgungsschienen (mit I2C-Mod) und dem installierten BIOS.
+- Leistungsmodul mit Diagrammen für CPU, GPU, VRAM, RAM, Datenträger und Netzwerk sowie einer Sensoransicht mit Minimum, Durchschnitt und Maximum.
 
-## Optionales Decky Quick Access
+**Hardware**
+- **GPU:** sichere Governor-Bereiche für Cyan und Oberon, Spannungslabor und Punkte über 2000 MHz.
+- **CPU / SMU:** temporäres und dauerhaftes Tuning, Stabilitätstest und experimentelles Freischalten versteckter Kerne.
+- **Compute Units:** 24 bis 40 CU, Live- und Startzustand getrennt angezeigt.
+- **Lüfter:** manuelle PWM-Steuerung, Temperaturkurven, Profile, die einen Neustart überstehen, und Export in eine Datei oder zu Decky.
+- **Speicher:** VRAM-Größe, ZRAM, ZSWAP und Auslagerungsdatei.
+- **Firmware (BIOS):** erstellt einen Update-USB-Stick mit P3.00 Chipset Menu, MeiMeiDXE v3, P5.00, P3.00 oder P2.00, jede Datei geprüft.
 
-Unter SteamOS/Game Mode wird das Panel im unteren **Decky**-Bereich des Dashboards installiert. Die App installiert bei Bedarf Decky Loader oder installiert/repariert nur BC250 Quick Access. Siehe [Decky-README](../../integrations/decky/bc250-quick-access/README.md).
+**System**
+- Vorbereitung der Abhängigkeiten passend zu jeder Distribution, mit einem eingebauten Terminal, das jeden Befehl zeigt.
+- Kompatibilitätskorrekturen: GFX1013 und Async Compute, FSR4 pro Spiel, Telemetrie und ACPI.
+- WLAN-, Bluetooth- und Druckertreiber aus den offiziellen Paketquellen deiner Distribution.
+- Diagnose, Verlauf und Export der Messwerte als CSV.
+
+**Oberfläche**
+- Themes Hell, Dunkel und Nachtblau, Stile Standard und Förmlich, 10 Akzentfarben und Skalierung von 70 % bis 150 %.
+- 30 Sprachen und Controller-Navigation.
+
+## Decky Quick Access (optional)
+
+Ein Panel für das Schnellzugriffsmenü von SteamOS und den Steam-Spielmodus. Es bringt die alltäglichen Regler (GPU, CU, CPU, Lüfter und VRAM) ins Spiel; die erweiterte Einrichtung bleibt in der Desktop-Anwendung.
+
+- **Profile pro Spiel:** Weise jedem Spiel ein GPU- und Lüfterprofil zu. Es wird beim Start des Spiels angewendet, und beim Beenden kehrt alles zum vorherigen Zustand zurück.
+- **Async Compute live:** zeigt, ob und wie stark das Spiel asynchrones Rechnen nutzt.
+- **Lüfter-Presets:** mit den Namen und Drehzahlen, die du vom Desktop exportierst.
+
+Zum Installieren öffne die **Übersicht**, scrolle zum Abschnitt **Decky** und wähle die angebotene Aktion. Fehlt Decky Loader, installiert die Anwendung ihn; ist er schon da, installiert oder repariert sie nur BC250 Quick Access. Die normale Vorbereitung der Abhängigkeiten installiert Decky nie von selbst.
+
+Mehr dazu im [Decky-README](../../integrations/decky/bc250-quick-access/README.md).
 
 ## Sicherheit
 
-Übertaktung, Änderungen an Compute Units und Lüftersteuerung können Hänger, Abschaltungen, Datenverlust oder Hardwareschäden verursachen. Immer nur eine Änderung anwenden, einen Wiederherstellungsweg bereithalten und Software-Prüfungen nicht als Hardware-Validierung verstehen.
+Übertakten, Änderungen an den Compute Units, Lüftersteuerung und BIOS-Aktualisierungen können das System einfrieren oder abschalten, Daten verlieren oder die Hardware beschädigen. Nimm eine Änderung nach der anderen vor, halte immer einen Weg zurück bereit und betrachte die Prüfungen der Anwendung nicht als Garantie für die Hardware.
 
-## Danksagungen
+## Externe Werkzeuge und Danksagungen
 
-Das Projekt integriert Community-Arbeit über explizite, geprüfte Abläufe. [Hinweise zu Drittanbietern](../THIRD_PARTY_NOTICES.md) enthalten Lizenzen, Prüfstatus und Integrationsgrenzen.
+BC250 Control Center baut auf der Arbeit der Community auf und beansprucht keines dieser Projekte für sich. Jedes Werkzeug wird nur über ausdrückliche, geprüfte Abläufe genutzt.
 
-## Sprachen
+**GPU**
+- [cyan-skillfish-governor](https://github.com/filippor/cyan-skillfish-governor/tree/smu): GPU-Governor.
+- [Oberon Governor](https://gitlab.com/mothenjoyer69/oberon-governor): unterstützter alternativer Governor.
+- [bc250-gfx1013-fix](https://github.com/DryhoppedIPA/bc250-gfx1013-fix) und [bc250-steamos](https://github.com/keyboardspecialist/bc250-steamos): Kernel und Mesa/RADV für GFX1013.
+- [linux-cachyos-bc250](https://github.com/MastaG/linux-cachyos-bc250): abgestimmte Kernel- und Mesa/RADV-Pakete für Arch/CachyOS.
+- [bc250-async-compute-bazzite](https://github.com/tri3gubki-ops/bc250-async-compute-bazzite): Async Compute unter Bazzite 44.
+- [bc250-fsr4](https://github.com/dmorazasanchez/bc250-fsr4) und [bc250-fsr4-fork](https://github.com/daniel-h-0/bc250-fsr4-fork) (OptiScaler Client): FSR4 pro Spiel.
 
-Die Desktop-Oberfläche unterstützt 30 Sprachen, folgt auf Wunsch der Systemsprache und kann in Settings geändert werden; darunter Englisch, Spanisch, Portugiesisch, Russisch, Ukrainisch, Deutsch, Französisch, Polnisch, Chinesisch, Japanisch, Koreanisch und weitere.
+**CPU und Compute Units**
+- [bc250_smu_oc](https://github.com/bc250-collective/bc250_smu_oc): CPU-Erkennung und -Tuning über die SMU.
+- [bc250-core-unlock](https://github.com/rw-r-r-0644/bc250-core-unlock) und [bc250-efi-core-unlock](https://github.com/Hexxeh/bc250-efi-core-unlock): Freischalten von Kernen.
+- [bc250-cu-live-manager](https://github.com/WinnieLV/bc250-cu-live-manager), [SteamOS](https://github.com/F5GO/bc250-cu-live-manager-SteamOS) und [bc250-40cu-unlock](https://github.com/duggasco/bc250-40cu-unlock): Compute Units.
+- [bc250-acpi-fix](https://github.com/e-tho/bc250-acpi-fix): CPU-Leistungszustände über ACPI.
+
+**Sensoren, Speicher und Lüfter**
+- [BC250-Telemetry](https://github.com/onlinermm/BC250-Telemetry): Telemetrie der Spannungsregler (VRM).
+- [bc250-memory-temperature](https://github.com/pan-Rijovich/bc250-memory-temperature): Temperatur des GDDR6-Speichers.
+- [bc250_memcfg](https://github.com/fanoush/bc250_memcfg): VRAM-Größe über CMOS.
+- [nct6687d](https://github.com/Fred78290/nct6687d): NCT-Sensoren und Lüfter-PWM.
+
+**Firmware**
+- [bc250-bios](https://gitlab.com/TuxThePenguin0/bc250-bios): originales P3.00- und Chipset-Menu-BIOS.
+- [AMD-BC-250-UEFI-v2.2-Firmware-Menu-Script](https://github.com/Forbidden-Darkness/AMD-BC-250-UEFI-v2.2-Firmware-Menu-Script): UEFI Shell und MeiMeiDXE v3.
+- [BC-250](https://github.com/kenavru/BC-250): Kopie des ASRock-Update-Kits (P2.00 und P5.00).
+- [bc250-custom-bios-logo](https://github.com/tmghd272/bc250-custom-bios-logo): eigenes Boot-Logo.
+
+Lizenzen, Prüfstatus und der genaue Umfang jeder Integration stehen in den [Hinweisen zu Drittanbietern](../THIRD_PARTY_NOTICES.md).
 
 ## Projektstruktur
 
 ```text
-src/bc250cc/   Anwendungs- und Systemlogik
-frontends/     Desktop-Qt-, CLI- und Quick-Access-Adapter
-privileged/    geschützte Helper und Polkit-Richtlinie
-packaging/     Paketmetadaten und Einrichtung je Distribution
-scripts/       Starter und lokaler Installer
+bc250-control-center/
+├── src/bc250cc/          Der Kern, ohne grafische Oberfläche
+│   ├── domain/           Regeln und Grenzen jedes Moduls (GPU, CPU, CU, Lüfter, Firmware…)
+│   ├── application/      Anwendungsfälle, die diese Regeln kombinieren
+│   ├── infrastructure/   Systemzugriff: Sensoren, Dienste, Pakete, GitHub
+│   ├── platform/         Unterschiede zwischen Distributionen und Init-Systemen
+│   └── shared/           Version, Pfade und Verträge, die alle Prozesse teilen
+├── frontends/
+│   ├── desktop/          Qt-Desktop-Anwendung
+│   │   ├── pages/        Eine Datei pro Modul (Übersicht, GPU, CPU, Lüfter, Firmware…)
+│   │   ├── components/   Wiederverwendbare Oberflächenteile
+│   │   ├── onboarding/   Willkommensbildschirm und geführte Tour
+│   │   ├── console/      Eingebautes Terminal
+│   │   ├── theme/        Themes, Stile, Farben und Symbole
+│   │   └── i18n/         Übersetzungen in 30 Sprachen
+│   └── cli.py            Befehlszeilenmodus
+├── integrations/decky/   Decky-Quick-Access-Plugin für den Spielmodus
+├── privileged/           Was als root läuft, isoliert und geprüft
+│   ├── helpers/          Ein Helfer pro privilegierter Aufgabe
+│   ├── lib/              Von diesen Helfern gemeinsam genutzter Code
+│   └── policies/         Polkit-Berechtigungen
+├── packaging/            Die Pakete .pkg.tar.zst, .rpm und .deb sowie das AUR-PKGBUILD
+├── scripts/              Starter, lokaler Installer und Systemwerkzeuge
+├── assets/               Symbole, Screenshots und Web-Galerie
+├── docs/                 Dokumentation, Drittanbieterhinweise und Übersetzungen dieses README
+└── tests/                Mehr als 4000 automatische Tests
 ```
 
-[MIT-Lizenz](../../LICENSE).
+Lizenziert unter der [MIT-Lizenz](../../LICENSE).

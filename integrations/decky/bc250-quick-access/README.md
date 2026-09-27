@@ -2,6 +2,12 @@
 
 Optional Game Mode panel for BC250 Control Center. It is designed for controller use and offers a small set of verified hardware actions; it does not replace the desktop application.
 
+## Screenshots
+
+| Board setup | Monitoring |
+|---|---|
+| [<img src="../../../assets/screenshots/decky-quick-access.png" alt="BC250 Quick Access: board setup" width="100%">](https://movacx.github.io/bc250-control-center/gallery/#decky) | [<img src="../../../assets/screenshots/decky-quick-access-monitoring.png" alt="BC250 Quick Access: monitoring" width="100%">](https://movacx.github.io/bc250-control-center/gallery/#decky-monitoring) |
+
 ## Available controls
 
 - GPU: conservative Cyan ranges and already validated safe-points.
@@ -21,7 +27,6 @@ BC250 Quick Access is installed from **BC250 Control Center**, not as a standalo
 4. Review the terminal result, then restart Game Mode or reload Decky.
 
 The application detects the existing Decky state and uses the appropriate official/bootstrap route before deploying the BC250 plugin. SteamOS is the primary target; Bazzite and CachyOS Game Mode are compatibility targets.
-
 
 ## Safety
 
