@@ -68,13 +68,58 @@ OPTICLIENT_DESKTOP_ID = "io.github.movacx.bc250-control-center.opticlient.deskto
 STEAM_LAUNCH_OPTION = 'WINEDLLOVERRIDES="dxgi=n,b" %command%'
 
 
-def _desktop_exec(path: Path) -> str:
+def _desktop_exec(path: Path | str) -> str:
     """Quote a path the way the Desktop Entry spec wants, not the shell's way."""
     text = str(path)
     if not any(character in text for character in ' "\'`$\\'):
         return text
     escaped = "".join("\\" + c if c in '"`$\\' else c for c in text)
     return f'"{escaped}"'
+
+
+#: Folders the client derives its data paths from. Its safety check refuses
+#: any symlink in a path up to ``/``, and on Fedora Atomic (Bazzite, Silverblue,
+#: Kinoite) ``/home`` is a symlink to ``var/home``: the client must see the
+#: real folders or it stops at "Setup needs attention ... linked path: /home".
+_CLIENT_PATH_VARIABLES = (
+    "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME",
+)
+
+
+def _unlinked(path: Path | str) -> Path:
+    """The same folder with every symlink in its path resolved."""
+    return Path(os.path.realpath(path))
+
+
+def _client_environment(environ: dict[str, str] | None = None) -> dict[str, str]:
+    """This app's environment minus its Python/Qt bits, with real home folders."""
+    source = os.environ if environ is None else environ
+    environment = {
+        key: value for key, value in source.items()
+        if key not in {"PYTHONPATH", "PYTHONHOME", "QT_PLUGIN_PATH"}
+    }
+    if not environment.get("HOME", "").strip():
+        environment["HOME"] = str(Path.home())
+    for key in _CLIENT_PATH_VARIABLES:
+        value = environment.get(key, "").strip()
+        if value:
+            environment[key] = str(_unlinked(value))
+    return environment
+
+
+def _desktop_command() -> str:
+    """Desktop-entry Exec that starts the client with real home folders."""
+    environment = _client_environment()
+    assignments = [
+        f"{key}={environment[key]}" for key in ("HOME", "XDG_CONFIG_HOME")
+        if key in environment
+    ]
+    if "XDG_CONFIG_HOME" not in environment:
+        assignments.append(f"XDG_CONFIG_HOME={_unlinked(_config_home())}")
+    launcher = _unlinked(opticlient_directory()) / OPTICLIENT_LAUNCHER
+    return " ".join(
+        ["env", *(_desktop_exec(item) for item in assignments), _desktop_exec(launcher)]
+    )
 
 
 def _data_home() -> Path:
@@ -357,8 +402,8 @@ cat > {desktop} <<'BC250_DESKTOP'
 Type=Application
 Name=OptiScaler Client (BC250 FSR4)
 Comment=Install FSR4 INT8 into your games with OptiScaler
-Exec={_desktop_exec(opticlient_directory() / OPTICLIENT_LAUNCHER)}
-Path={opticlient_directory()}
+Exec={_desktop_command()}
+Path={_unlinked(opticlient_directory())}
 Icon=io.github.movacx.bc250-control-center
 Terminal=false
 Categories=Game;Utility;
@@ -397,15 +442,11 @@ def launch_opticlient() -> dict:
     state = opticlient_state()
     if not state["current"]:
         raise RuntimeError("Install OptiScaler Client first.")
-    launcher = Path(state["launcher"])
-    environment = {
-        key: value for key, value in os.environ.items()
-        if key not in {"PYTHONPATH", "PYTHONHOME", "QT_PLUGIN_PATH"}
-    }
+    launcher = _unlinked(state["launcher"])
     subprocess.Popen(  # noqa: S603 - fixed, verified launcher path
         [str(launcher)],
         cwd=str(launcher.parent),
-        env=environment,
+        env=_client_environment(),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

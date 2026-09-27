@@ -96,6 +96,61 @@ def test_launching_before_installing_is_refused(home):
         opticlient.launch_opticlient()
 
 
+def _atomic_home(tmp_path: Path) -> tuple[Path, Path]:
+    """Fedora Atomic layout: /home is a symlink to var/home."""
+    real = tmp_path / "var" / "home" / "user"
+    real.mkdir(parents=True)
+    (tmp_path / "home").symlink_to(Path("var") / "home")
+    return tmp_path / "home" / "user", real
+
+
+def test_the_client_sees_real_home_folders_on_atomic_distributions(tmp_path):
+    linked, real = _atomic_home(tmp_path)
+    environment = opticlient._client_environment({
+        "HOME": str(linked),
+        "XDG_CONFIG_HOME": str(linked / ".config"),
+        "XDG_DATA_HOME": str(linked / ".local" / "share"),
+        "PYTHONPATH": "/app",
+        "LANG": "es_ES.UTF-8",
+    })
+    assert environment["HOME"] == str(real)
+    assert environment["XDG_CONFIG_HOME"] == str(real / ".config")
+    assert environment["XDG_DATA_HOME"] == str(real / ".local" / "share")
+    assert "PYTHONPATH" not in environment and environment["LANG"] == "es_ES.UTF-8"
+
+
+def test_launch_starts_the_client_outside_linked_folders(tmp_path, monkeypatch):
+    linked, real = _atomic_home(tmp_path)
+    monkeypatch.setenv("HOME", str(linked))
+    monkeypatch.setenv("XDG_DATA_HOME", str(linked / ".local" / "share"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(linked / ".config"))
+    monkeypatch.setattr(opticlient, "_running", lambda: False)
+    _install_fake(opticlient.opticlient_directory())
+    started = {}
+    monkeypatch.setattr(
+        opticlient.subprocess, "Popen",
+        lambda args, **kwargs: started.update(args=args, **kwargs),
+    )
+
+    opticlient.launch_opticlient()
+
+    expected = real / ".local" / "share" / "bc250-control-center" / "opticlient" / opticlient.OPTICLIENT_VERSION
+    assert started["args"] == [str(expected / opticlient.OPTICLIENT_LAUNCHER)]
+    assert started["cwd"] == str(expected)
+    assert started["env"]["HOME"] == str(real)
+    assert started["env"]["XDG_CONFIG_HOME"] == str(real / ".config")
+
+
+def test_the_desktop_entry_also_uses_real_home_folders(tmp_path, monkeypatch):
+    linked, real = _atomic_home(tmp_path)
+    monkeypatch.setenv("HOME", str(linked))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(linked / ".local" / "share"))
+    command = opticlient.build_opticlient_install_command()
+    assert f"Exec=env HOME={real} XDG_CONFIG_HOME={real / '.config'} {real}/" in command
+    assert f"Path={real}/" in command
+
+
 @pytest.mark.parametrize("family", ["ubuntu", "cachyos", "bazzite", "fedora", "opensuse", "steamos"])
 def test_every_distribution_gets_the_same_workflow(home, tmp_path, family):
     repository = DependenciasRepository()
