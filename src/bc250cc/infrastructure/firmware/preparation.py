@@ -7,8 +7,8 @@ check     the drive is still the one the user chose, and still safe to erase
 erase     unmount it and give it an empty MBR partition table
 format    one FAT32 partition over the whole drive, labelled BC250BIOS
 copy      the UEFI shell, the flash tool, the image and the kit's scripts
-verify    unmount, mount again and hash every file back from the drive
-eject     unmount and power the drive off so it can be pulled out
+verify    unmount, mount again and hash every file back from the drive, then
+          unmount it so it can be pulled out (it is not powered off)
 
 Cancelling is honoured until the drive is touched. After that the steps run
 to the end, because stopping between "erase" and "copy" would leave a stick
@@ -34,7 +34,7 @@ from .store import CHUNK_BYTES, DownloadCancelled, FirmwareStore
 from .udisks import UDisksClient, UDisksError
 from .usb_devices import list_usb_drives
 
-STEPS = ("download", "logo", "check", "erase", "format", "copy", "verify", "eject")
+STEPS = ("download", "logo", "check", "erase", "format", "copy", "verify")
 #: How long a freshly created partition may take to show up formatted.
 SETTLE_SECONDS = 15.0
 
@@ -69,7 +69,6 @@ class PreparationReport:
     partition: str
     files: int
     bytes_written: int
-    ejected: bool
 
 
 def _expected_sha256(item: KitFile) -> str:
@@ -125,12 +124,10 @@ class UsbPreparation:
         partition = self._format(drive, progress)
         written = self._copy(plan, local, partition, progress)
         self._verify(plan, partition, progress)
-        ejected = self._eject(drive, partition, progress)
         return PreparationReport(
             partition=partition,
             files=len(plan.files),
             bytes_written=written,
-            ejected=ejected,
         )
 
     # --------------------------------------------------------------- steps
@@ -322,16 +319,5 @@ class UsbPreparation:
                     "The drive may be failing; try another one.",
                 )
             checked += item.size
+        self._unmount(partition, "verify")
         progress("verify", 1.0, "")
-
-    def _eject(self, drive: UsbDrive, partition: str, progress: Progress) -> bool:
-        progress("eject", 0.0, drive.path)
-        self._unmount(partition, "eject")
-        try:
-            self.udisks.power_off(drive.name)
-        except UDisksError:
-            # Unmounted is already safe to unplug; powering off is a courtesy.
-            progress("eject", 1.0, "")
-            return False
-        progress("eject", 1.0, "")
-        return True

@@ -161,7 +161,7 @@ def _preparation(tmp_path, world, **store_options):
     )
 
 
-def test_a_full_run_leaves_a_verified_kit_and_ejects_the_drive(tmp_path):
+def test_a_full_run_leaves_a_verified_kit_unmounted_and_powered_on(tmp_path):
     world = _World(tmp_path)
     steps = []
     report = _preparation(tmp_path, world).run(
@@ -170,7 +170,7 @@ def test_a_full_run_leaves_a_verified_kit_and_ejects_the_drive(tmp_path):
     assert report.partition == "sdz1"
     assert report.files == 5
     assert report.bytes_written == _plan().total_bytes
-    assert report.ejected is True
+    assert "sdz1" not in world.mounted
     assert list(steps_for(_plan())) == list(dict.fromkeys(step for step, _ in steps))
     assert "logo" not in steps_for(_plan()) and "logo" in STEPS
     assert all(0.0 <= fraction <= 1.0 for _step, fraction in steps)
@@ -180,7 +180,7 @@ def test_a_full_run_leaves_a_verified_kit_and_ejects_the_drive(tmp_path):
     order = [call[0] for call in world.calls]
     assert order.index("unmount") < order.index("erase") < order.index("format") < order.index("mount")
     assert ("format", "sdz", "BC250BIOS") in world.calls
-    assert order[-1] == "power_off"
+    assert order[-1] == "unmount" and "power_off" not in order
 
 
 def test_nothing_is_erased_when_a_download_fails(tmp_path):
@@ -223,7 +223,6 @@ def test_a_cancel_arriving_after_the_erase_is_ignored(tmp_path):
     report = _preparation(tmp_path, world).run(
         _plan(), STICK, progress=lambda *_a: None, cancelled=lambda: bool(erased)
     )
-    assert report.ejected
 
 
 def test_a_drive_that_was_pulled_out_is_not_touched(tmp_path):
@@ -304,14 +303,6 @@ def test_a_file_that_reads_back_different_fails_the_verification(tmp_path):
     assert not any(call[0] == "power_off" for call in world.calls)
 
 
-def test_a_drive_that_cannot_power_off_is_still_ready(tmp_path):
-    world = _World(tmp_path)
-    world.fail["power_off"] = UDisksError("Drive is busy")
-    report = _preparation(tmp_path, world).run(_plan(), STICK, progress=lambda *_a: None)
-    assert report.ejected is False
-    assert "sdz1" not in world.mounted
-
-
 @pytest.mark.parametrize("path", ["../escape", "/etc/passwd", "BC250/../../x", ""])
 def test_kit_paths_cannot_leave_the_usb(tmp_path, path):
     world = _World(tmp_path)
@@ -363,7 +354,6 @@ def test_the_logo_goes_in_before_the_drive_is_touched(tmp_path, monkeypatch):
     )
     assert calls == [(BASE, LOGO, [])], "built from the verified download, before any drive call"
     assert list(dict.fromkeys(steps)) == list(STEPS)
-    assert report.ejected
     on_usb = world.usb / "BC250" / "FIRMWARE" / "LOGO-BASE.ROM"
     assert on_usb.read_bytes() == built
     assert not (world.usb / "BC250" / "FIRMWARE" / "BASE.ROM").exists()
@@ -437,7 +427,6 @@ def test_the_real_builder_writes_a_verified_image_to_the_usb(tmp_path, monkeypat
         replace(item, logo=jpeg) if item.logo is not None else item for item in plan.files
     ))
     report = _preparation(tmp_path, world).run(plan, STICK, progress=lambda *_a: None)
-    assert report.ejected
     written = (world.usb / "BC250" / "FIRMWARE" / "LOGO-SYNTH.ROM").read_bytes()
     assert written == bios_image.image(jpeg)
     assert read_logo(written, decompress=lzma1.decompress).picture == jpeg

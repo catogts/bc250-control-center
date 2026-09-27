@@ -37,7 +37,7 @@ POLL_MS = 3000
 #: Plugging a stick in fires several events within a few hundred ms.
 SETTLE_MS = 450
 #: Steps after which the drive has been changed and cannot be left halfway.
-DESTRUCTIVE_STEPS = frozenset({"erase", "format", "copy", "verify", "eject"})
+DESTRUCTIVE_STEPS = frozenset({"erase", "format", "copy", "verify"})
 
 
 class UsbDriveWatcher(QObject):

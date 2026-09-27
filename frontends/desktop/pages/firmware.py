@@ -6,7 +6,7 @@ flash tool, know the stick must be FAT32, know how to format one on Linux,
 know which folder goes where. This page does all of it. The user picks a
 firmware and a USB drive; the page downloads the pinned files, checks their
 SHA-256, erases the drive through UDisks2, formats it FAT32, copies a kit that
-boots into a menu, reads every file back, and ejects it.
+boots into a menu, reads every file back, and unmounts it.
 
 The page is laid out the way it is read, in two columns. On the left, the
 full height of the page, the images, grouped into modded and stock and
@@ -124,12 +124,10 @@ STEP_TITLES = {
     "format": "Format it FAT32",
     "copy": "Copy the update kit",
     "verify": "Read back and verify every file",
-    "eject": "Eject the USB drive",
 }
 #: Each step's share of the whole bar: downloads and copying dominate.
 STEP_WEIGHTS = {
-    "download": 45, "logo": 4, "check": 2, "erase": 5, "format": 5, "copy": 25, "verify": 15,
-    "eject": 3,
+    "download": 45, "logo": 4, "check": 2, "erase": 5, "format": 5, "copy": 25, "verify": 18,
 }
 #: The images, in the two groups the list shows them in.
 CATEGORIES = (("modded", "Modded BIOS"), ("stock", "Stock BIOS (ASRock)"))
@@ -1541,12 +1539,8 @@ class FirmwarePage(QWidget):
             if key in self._run_steps:
                 row.set_state("done")
         self.progress.setValue(1000)
-        ejected = bool(getattr(report, "ejected", False))
         lines = [tr(
-            "The USB is ready and ejected. Switch the BC-250 off, unplug its "
-            "drives, start it from this USB and type flash."
-            if ejected
-            else "The USB is ready and unmounted. Switch the BC-250 off, unplug "
+            "The USB is ready and unmounted. Switch the BC-250 off, unplug "
             "its drives, start it from this USB and type flash."
         )]
         if not self.selected_family().tool.clears_settings:
@@ -1588,7 +1582,7 @@ class FirmwarePage(QWidget):
         self.cancel_button.hide()
         self._job = None
         self._set_controls_enabled(True)
-        # The stick was just rewritten or ejected: read the drives again.
+        # The stick was just rewritten: read the drives again.
         self.watcher.refresh()
         if not self.isVisible():
             self.watcher.stop()

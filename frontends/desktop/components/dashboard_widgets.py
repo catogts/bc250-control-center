@@ -832,6 +832,15 @@ class PreparationComponentCard(QFrame):
         self.checkbox.setChecked(True)
         self.checkbox.setToolTip(tr("Include this component when preparing"))
         row.addWidget(self.checkbox, alignment=Qt.AlignmentFlag.AlignVCenter)
+        # The card is the controller stop, not the 16 px box at its edge: the
+        # D-pad then moves card to card along the grid, and A toggles it.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.checkbox.setProperty("gamepadSkip", True)
+        self.checkbox.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setProperty("gamepadBadgeInset", 26)
+        # Left/right walk the cards in order, so a move along a row never
+        # jumps to a panel above or below that happens to be closer.
+        self.setProperty("gamepadHorizontalGroup", "preparation-components")
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self.checkbox.isEnabled():
@@ -839,6 +848,17 @@ class PreparationComponentCard(QFrame):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+
+    def gamepad_activate(self) -> None:
+        if self.checkbox.isEnabled():
+            self.checkbox.click()
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.gamepad_activate()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def set_capability(self, capability: Mapping[str, object]) -> None:
         available = bool(capability.get("available", True))
@@ -1121,6 +1141,8 @@ class PreparationSidebar(QFrame):
         footer_layout.setContentsMargins(0, 0, 0, 0)
         footer_layout.setSpacing(7)
         self.prepare_button = QPushButton(tr("Prepare selected"))
+        self.prepare_button.setProperty("gamepadHorizontalGroup", "preparation-components")
+        self.prepare_button.setProperty("gamepadHorizontalIndex", 999)
         self.prepare_button.setProperty("dependencyPrepareButton", True)
         self.prepare_button.setProperty("dashboardPrepareAction", True)
         self.prepare_button.setSizePolicy(
@@ -1202,6 +1224,7 @@ class PreparationSidebar(QFrame):
         self.component_cards: dict[str, PreparationComponentCard] = {}
         for index, (key, title, detail) in enumerate(self.COMPONENTS):
             card = PreparationComponentCard(key, title, detail)
+            card.setProperty("gamepadHorizontalIndex", index)
             card.checkbox.toggled.connect(self._sync_components)
             self.component_cards[key] = card
         layout.addWidget(self._bazzite_mitigations_panel())

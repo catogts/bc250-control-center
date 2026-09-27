@@ -95,7 +95,7 @@ class _Preparation:
             if _Preparation.behaviour == "fail-copy" and step == "copy":
                 raise PreparationError("copy", "Could not write to the USB: [Errno 5] Input/output error")
             progress(step, 1.0, "")
-        return PreparationReport(partition="sdb1", files=len(plan.files), bytes_written=1, ejected=True)
+        return PreparationReport(partition="sdb1", files=len(plan.files), bytes_written=1)
 
 
 @pytest.fixture
@@ -360,7 +360,7 @@ def test_a_confirmed_preparation_runs_every_step_and_says_what_to_do_next(qtbot,
     assert all(row.state == "done" for key, row in page.step_rows.items() if key != "logo")
     assert page.progress.value() == 1000
     assert page.result.property("firmwareResult") == "success"
-    assert "ready and ejected" in page.result_text.text()
+    assert "ready and unmounted" in page.result_text.text()
     assert firmware_module.AFTER_FLASH_WARNING in page.result_text.text()
     assert page.prepare_button.isEnabled()
     assert all(card.isEnabled() for card in page.firmware_cards.values())

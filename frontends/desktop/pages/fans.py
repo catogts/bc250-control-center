@@ -2692,6 +2692,9 @@ class FansPage(QWidget):
             button.setProperty("fanPresetButton", True)
             button.setProperty("curvePreset", key)
             button.setProperty("fanPresetTone", tone)
+            # Left/right stay on the three profiles instead of jumping away.
+            button.setProperty("gamepadHorizontalGroup", "fan-curve-presets")
+            button.setProperty("gamepadHorizontalIndex", len(self.curve_preset_buttons))
             button.clicked.connect(
                 lambda checked, preset=key: self._apply_curve_preset(preset) if checked else None
             )
@@ -3682,20 +3685,37 @@ class FansPage(QWidget):
         self._update_curve_summary()
         self._update_action_availability()
 
+    def _sync_curve_preset_buttons(self) -> None:
+        self.curve_preset_group.setExclusive(False)
+        for button in self.curve_preset_buttons:
+            button.setChecked(button.property("curvePreset") == self._curve_preset)
+        self.curve_preset_group.setExclusive(True)
+
     def _apply_curve_preset(self, key: str) -> None:
-        # A named response is part of the automatic-control workflow; do not
-        # mutate or persist it through a programmatic call while that workflow
-        # is explicitly disabled in the UI.
-        if not self.curve_enabled.isChecked() or self._busy or not self._fan_control_available():
+        if self._busy or not self._fan_control_available():
             return
         values = CURVE_PRESETS.get(key)
         if not values:
             return
+        previous = (self._curve_points_values(), self._curve_preset)
         self._curve_loading = True
         self._replace_curve_points(list(values))
         self._curve_loading = False
         self._curve_preset = key
         self._curve_dirty = True
+        if not self.curve_enabled.isChecked():
+            # Choosing an automatic profile is choosing the automatic curve.
+            # The switch runs its own checks and saves the curve once, with
+            # the profile's points already in place.
+            self.curve_enabled.setChecked(True)
+            if not self.curve_enabled.isChecked():
+                self._curve_loading = True
+                self._replace_curve_points(list(previous[0]))
+                self._curve_loading = False
+                self._curve_preset = previous[1]
+                self._sync_curve_preset_buttons()
+            self._update_curve_summary()
+            return
         self._persist_curve(show_error=False)
         self._update_curve_summary()
 
@@ -4787,7 +4807,8 @@ class FansPage(QWidget):
         for point in self.curve_points:
             point.setEnabled(curve_editable)
         for button in self.curve_preset_buttons:
-            button.setEnabled(curve_editable)
+            # Reachable with the curve off too: picking one switches it on.
+            button.setEnabled(availability.edit_curve)
         self.curve_enabled.setEnabled(availability.edit_curve)
         self.prepare_button.setEnabled(availability.driver_setup)
         self.read_only_button.setEnabled(availability.driver_setup)

@@ -2790,7 +2790,10 @@ class GamepadNavigationController(QObject):
             if cancel_like and local.x() >= 26:
                 desired_x = local.x() - 22
             else:
-                desired_x = local.x() + focused.width() - 23
+                # A control with its own tick at the right edge asks for the
+                # badge to sit beside that tick instead of over it.
+                inset = int(focused.property("gamepadBadgeInset") or 0)
+                desired_x = local.x() + focused.width() - 23 - inset
             x = min(max(4, desired_x), max(4, top.width() - 24))
             y = min(max(4, local.y() + 3), max(4, top.height() - 24))
             if badge.pos() != QPoint(x, y):
