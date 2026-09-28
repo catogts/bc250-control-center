@@ -234,11 +234,27 @@ def _chmod_tree(target: Path, owner_uid: int | None = None) -> None:
 
 
 def _reject_tree_symlinks(root: Path) -> None:
-    """Reject every symlink before ownership/mode normalization can follow it."""
+    """Materialize in-tree file symlinks and reject any other symlink.
+
+    Upstream UMR ships aliases such as ip/smuio_13_0_11.reg as relative
+    symlinks to sibling register files; those are replaced by regular copies
+    before ownership/mode normalization can follow them.
+    """
     _reject_symlink(root, "database staging root")
-    for item in root.rglob("*"):
-        if item.is_symlink():
-            raise DatabaseError(f"refusing symlink in UMR database payload: {item}")
+    real_root = root.resolve(strict=True)
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in dirnames + filenames:
+            item = Path(dirpath) / name
+            if not item.is_symlink():
+                continue
+            try:
+                resolved = item.resolve(strict=True)
+            except (OSError, RuntimeError) as exc:
+                raise DatabaseError(f"refusing broken symlink in UMR database payload: {item}") from exc
+            if not resolved.is_relative_to(real_root) or not resolved.is_file():
+                raise DatabaseError(f"refusing symlink in UMR database payload: {item}")
+            item.unlink()
+            shutil.copyfile(resolved, item)
 
 
 def _remove_tree_or_link(path: Path) -> None:

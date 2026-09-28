@@ -32,6 +32,11 @@
   </categories>
   <url type="homepage">https://github.com/movacx/bc250-control-center</url>
   <releases>
+    <release version="1.20.3" date="2026-09-28">
+      <description>
+        <p>SteamOS: "Preparar dependencias" instala la base de datos de UMR aunque el repositorio incluya alias por enlace simbólico; el parche de kernel acepta el kernel 6.18 de SteamOS; se oculta el paso FSR4 por juego de GFX1013 en favor del cliente OptiScaler FSR INT8.</p>
+      </description>
+    </release>
     <release version="1.20.2" date="2026-09-27">
       <description>
         <p>FSR4 (OptiScaler Client): se abre correctamente en Bazzite y demás Fedora Atomic, donde /home es un enlace a /var/home.</p>

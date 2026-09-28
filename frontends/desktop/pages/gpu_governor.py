@@ -106,7 +106,7 @@ from ..components.widgets import IconBadge, InfoDialog, PillLabel, apply_shadow,
 from ..core.action_session import ActionSession
 from ..core.external_links import open_external_url, open_local_file
 from ..core.feature_visibility import (
-    FSR4_UI_ENABLED,
+    GFX1013_FSR4_UI_ENABLED,
     GPU_REFERENCE_PANELS_ENABLED,
     mastag_stack_replaces_gfx1013_card,
 )
@@ -1200,7 +1200,7 @@ class DependencyPreparationDialog(QDialog):
     def _gfx1013_card(self) -> QFrame:
         state = _dict(self.tools.get("gfx1013_compute"))
         presentation = present_gfx1013(
-            state, include_fsr4=FSR4_UI_ENABLED
+            state, include_fsr4=GFX1013_FSR4_UI_ENABLED
         )
 
         card = QFrame()

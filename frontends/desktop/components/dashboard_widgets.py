@@ -44,7 +44,7 @@ from PyQt6.QtWidgets import QPushButton as IconButton
 from bc250cc.infrastructure.terminal_repository import TerminalRepository
 
 from .. import theme
-from ..core.feature_visibility import FSR4_UI_ENABLED
+from ..core.feature_visibility import FSR4_UI_ENABLED, GFX1013_FSR4_UI_ENABLED
 from ..core.gfx1013_presenter import present_gfx1013
 from ..core.preferences import application_settings
 from ..i18n import tr, tr_format
@@ -1861,7 +1861,7 @@ class PreparationSidebar(QFrame):
         )
         self.gfx_secondary_button.hide()
         self.gfx_tertiary_button.hide()
-        self.gfx_tertiary_button.setEnabled(FSR4_UI_ENABLED)
+        self.gfx_tertiary_button.setEnabled(GFX1013_FSR4_UI_ENABLED)
         self.gfx_quaternary_button.hide()
         self.gfx_quinary_button.hide()
         self.gfx_card.primary_button = self.gfx_primary_button
@@ -1879,7 +1879,7 @@ class PreparationSidebar(QFrame):
             ("Kernel / AMDGPU", self.steamos_kernel_status),
             ("Mesa / RADV", self.steamos_radv_status),
         ]
-        if FSR4_UI_ENABLED:
+        if GFX1013_FSR4_UI_ENABLED:
             steamos_graphics_rows.append(
                 ("FSR4 per game", self.steamos_fsr4_status)
             )
@@ -1912,7 +1912,7 @@ class PreparationSidebar(QFrame):
             self._copy_steamos_fsr4_launch_option
         )
         steamos_fsr4_launch_layout.addWidget(self.steamos_fsr4_copy_button)
-        if FSR4_UI_ENABLED:
+        if GFX1013_FSR4_UI_ENABLED:
             self.gfx_card.layout().insertWidget(3, self.steamos_fsr4_launch_row)
         self.steamos_fsr4_launch_row.hide()
         self._steamos_fsr4_launch_option = ""
@@ -2750,7 +2750,7 @@ class PreparationSidebar(QFrame):
                 self.steamos_kernel_status,
                 self.steamos_radv_status,
             ]
-            if FSR4_UI_ENABLED:
+            if GFX1013_FSR4_UI_ENABLED:
                 pills.append(self.steamos_fsr4_status)
             for pill in pills:
                 pill.setText(tr("Available on SteamOS"))
@@ -2767,7 +2767,7 @@ class PreparationSidebar(QFrame):
                 payload={"action": "steamos_graphics_install", "governor": ""},
                 enabled=False,
             )
-            if FSR4_UI_ENABLED:
+            if GFX1013_FSR4_UI_ENABLED:
                 self.gfx_card.update_action(
                     self.gfx_tertiary_button,
                     text="3 · Install per-game FSR4",
@@ -2987,7 +2987,7 @@ class PreparationSidebar(QFrame):
         # stack card. The independent source build is rendered into it, so
         # the card has to stay visible whenever that build is on offer.
         self._gfx_source_offered = False
-        gfx = present_gfx1013(gfx_state, include_fsr4=FSR4_UI_ENABLED)
+        gfx = present_gfx1013(gfx_state, include_fsr4=GFX1013_FSR4_UI_ENABLED)
         reason_key = str(gfx_state.get("reason_key") or "manual-patches-only")
         gfx_scope = {
             "steamos-dedicated-backend": "SteamOS · Dedicated toolkit",
@@ -3038,7 +3038,7 @@ class PreparationSidebar(QFrame):
                 gfx_state.get("steamos_external_fsr4_launch_option") or ""
             )
             self.steamos_fsr4_launch_row.setVisible(
-                FSR4_UI_ENABLED
+                GFX1013_FSR4_UI_ENABLED
                 and fsr4_current
                 and bool(self._steamos_fsr4_launch_option)
             )
@@ -3100,7 +3100,7 @@ class PreparationSidebar(QFrame):
                 if not kernel_ready
                 else "",
             )
-            if FSR4_UI_ENABLED:
+            if GFX1013_FSR4_UI_ENABLED:
                 self.gfx_card.update_action(
                     self.gfx_tertiary_button,
                     text="Update per-game FSR4"
@@ -3124,17 +3124,17 @@ class PreparationSidebar(QFrame):
                 self.gfx_quinary_button,
                 text=(
                     "Remove FSR4"
-                    if FSR4_UI_ENABLED and fsr4_state != "not-installed"
+                    if GFX1013_FSR4_UI_ENABLED and fsr4_state != "not-installed"
                     else "Remove Mesa RADV"
                 ),
                 payload={
                     "action": "steamos_graphics_fsr4_uninstall"
-                    if FSR4_UI_ENABLED and fsr4_state != "not-installed"
+                    if GFX1013_FSR4_UI_ENABLED and fsr4_state != "not-installed"
                     else "steamos_graphics_uninstall",
                     "governor": "",
                 },
                 visible=(
-                    (FSR4_UI_ENABLED and fsr4_state != "not-installed")
+                    (GFX1013_FSR4_UI_ENABLED and fsr4_state != "not-installed")
                     or radv_state != "not-installed"
                 ),
             )

@@ -31,8 +31,16 @@ OVERLAY_RESULT_SHA = "a50ff2e02a6bcf38e12d947eb8d76db3cfdc9322a4579e32b5fdbe5f62
 STEAMOS_24_5_KERNEL_COMMIT = "b2f7cfe85e45b7e1ddb04ca8b280aca19add1100"
 STEAMOS_24_5_SCLK_SOURCE_SHA = "16578119d29855f47bec42b772d2ad03b8f3d690aa3df1106ad1411a04ca7d94"
 STEAMOS_24_5_OVERLAY_RESULT_SHA = "32b553a07f073881521c508ad9f40f7b86a91d7f8cbea032b084b3c998a62f19"
+# SteamOS 6.18 (linux-neptune-618) shifts the patched cyan_skillfish_ppt.c
+# composition; accept only this exact kernel commit's measured result.
+STEAMOS_618_KERNEL_COMMIT = "c7289a96b14d22cb970907946cdf853c677d8a48"
+STEAMOS_618_OVERLAY_RESULT_SHA = "767e15fe00399396a4742786e595ddd4db807b35c98f84165e61c94981635058"
+# Earlier V1 fragments that are upgraded in place to the current one.
+PREVIOUS_OVERLAY_RESULT_SHAS = (LEGACY_OVERLAY_RESULT_SHA, OVERLAY_RESULT_SHA)
 LEGACY_616_SCLK_SOURCE_SHA = "fdb9c3fff8a9ff813cdc37907dace041f89f6db15158c56a4bd8f238352b6e42"
 ANCHOR = 'step "apply GFX1013 compute-queue lifecycle patches"'
+RESET_MARKER = "# BC250_CONTROL_CENTER_OC_TELEMETRY_RESET_V1"
+RESET_ANCHOR = 'step "apply Cyan Skillfish GPU metrics patches"'
 SCLK_HASH_ASSIGNMENT = f"        SCLK_SOURCE_SHA={LEGACY_616_SCLK_SOURCE_SHA}"
 
 
@@ -64,6 +72,7 @@ if [ "${{BC250_CONTROL_CENTER_OC_TELEMETRY:-0}}" = "1" ]; then
     BC250_TELEMETRY_SHA="$(sha256sum "$BC250_TELEMETRY_SOURCE" | cut -d' ' -f1)"
     case "$FULLSHA" in
         {STEAMOS_24_5_KERNEL_COMMIT}) BC250_TELEMETRY_EXPECTED_SHA={STEAMOS_24_5_OVERLAY_RESULT_SHA} ;;
+        {STEAMOS_618_KERNEL_COMMIT}) BC250_TELEMETRY_EXPECTED_SHA={STEAMOS_618_OVERLAY_RESULT_SHA} ;;
         *) BC250_TELEMETRY_EXPECTED_SHA={OVERLAY_RESULT_SHA} ;;
     esac
     [ "$BC250_TELEMETRY_SHA" = "$BC250_TELEMETRY_EXPECTED_SHA" ] || \\
@@ -74,11 +83,50 @@ fi
 '''
 
 
+def _reset_fragment() -> str:
+    overlaid = "|".join(
+        (
+            LEGACY_OVERLAY_RESULT_SHA,
+            OVERLAY_RESULT_SHA,
+            STEAMOS_24_5_OVERLAY_RESULT_SHA,
+            STEAMOS_618_OVERLAY_RESULT_SHA,
+        )
+    )
+    return f'''{RESET_MARKER}
+# A rerun after the telemetry overlay ran (for example after a failed build)
+# finds cyan_skillfish_ppt.c in the overlaid state, which upstream's
+# patch-state hashes reject as drift.  Restore only that exact, attested
+# state from the pinned commit so the reviewed patches re-apply cleanly.
+BC250_TELEMETRY_RESET_SOURCE=drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c
+case "$(sha256sum "$BC250_TELEMETRY_RESET_SOURCE" | cut -d' ' -f1)" in
+    {overlaid})
+        git --git-dir="$GITDIR" show "$FULLSHA:$BC250_TELEMETRY_RESET_SOURCE" \\
+            > "$BC250_TELEMETRY_RESET_SOURCE.bc250-reset" \\
+            && mv -f "$BC250_TELEMETRY_RESET_SOURCE.bc250-reset" "$BC250_TELEMETRY_RESET_SOURCE" \\
+            || die "BC250 telemetry OC overlay could not restore $BC250_TELEMETRY_RESET_SOURCE"
+        echo "BC250 Control Center: reset telemetry overlay before re-applying GPU metrics patches"
+        ;;
+esac
+
+'''
+
+
+def _stage_reset(text: str) -> str:
+    if RESET_MARKER in text:
+        return text
+    if text.count(RESET_ANCHOR) != 1:
+        raise RuntimeError(
+            "The reviewed SteamOS build script has drifted; telemetry OC reset was not staged."
+        )
+    return text.replace(RESET_ANCHOR, _reset_fragment() + RESET_ANCHOR, 1)
+
+
 def apply_overlay(toolkit_root: Path) -> bool:
     root = Path(toolkit_root).resolve(strict=True)
     build = root / BUILD_RELATIVE_PATH
     _regular_file(build)
-    text = build.read_text(encoding="utf-8", errors="strict")
+    original = build.read_text(encoding="utf-8", errors="strict")
+    text = original
     steamos_24_5_hash_block = f'''        if [ "$FULLSHA" = "{STEAMOS_24_5_KERNEL_COMMIT}" ]; then
             SCLK_SOURCE_SHA={STEAMOS_24_5_SCLK_SOURCE_SHA}
         else
@@ -94,21 +142,30 @@ def apply_overlay(toolkit_root: Path) -> bool:
         if (
             OVERLAY_RESULT_SHA in text
             and STEAMOS_24_5_OVERLAY_RESULT_SHA in text
+            and STEAMOS_618_OVERLAY_RESULT_SHA in text
         ):
-            return False
-        # R181 initially covered only the high end. Upgrade that exact,
-        # attested fragment in place, while refusing any unknown local edit.
-        if LEGACY_OVERLAY_RESULT_SHA not in text or text.count(ANCHOR) != 1:
+            updated = text
+        # Upgrade an exact, attested earlier fragment in place (R181's
+        # high-end-only one, or one without the 6.18 kernel), while refusing
+        # any unknown local edit.
+        elif (
+            not any(sha in text for sha in PREVIOUS_OVERLAY_RESULT_SHAS)
+            or text.count(ANCHOR) != 1
+        ):
             raise RuntimeError("Existing telemetry OC overlay has an unexpected integrity hash.")
-        start = text.index(OVERLAY_MARKER)
-        end = text.index(ANCHOR)
-        updated = text[:start] + _fragment() + text[end:]
+        else:
+            start = text.index(OVERLAY_MARKER)
+            end = text.index(ANCHOR)
+            updated = text[:start] + _fragment() + text[end:]
     else:
         if text.count(ANCHOR) != 1 or UPSTREAM_GFXCLK_SHA not in text:
             raise RuntimeError(
                 "The reviewed SteamOS build script has drifted; telemetry OC overlay was not staged."
             )
         updated = text.replace(ANCHOR, _fragment() + ANCHOR, 1)
+    updated = _stage_reset(updated)
+    if updated == original:
+        return False
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{build.name}.", suffix=".tmp", dir=str(build.parent)
     )
