@@ -12,11 +12,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("status", "memory-plan", "memory-apply", "memory-boot",
                                            "acpi-install", "acpi-uninstall", "acpi-check",
-                                           "telemetry-fix", "telemetry-restore",
+                                           "telemetry-fix", "telemetry-restore", "kernel-options-set",
                                            "vram-read", "vram-apply", "uninstall-check"))
     parser.add_argument("--policy", choices=("preserve", "restore", "swap-16", "swap-32", "zram", "zswap-16", "zswap-32"), default="preserve")
     parser.add_argument("--ttm", type=int, choices=(-1, 0, 8, 10, 12), default=0)
     parser.add_argument("--uma-size", type=int, default=0)
+    parser.add_argument("--kernel-options", default="",
+                        help="Comma-separated subset of mitigations=off,nosmt; empty restores both")
     parser.add_argument("--takeover-zram", action="store_true",
                          help="Confirm disabling an existing, foreign ZRAM to switch to ZSWAP")
     parser.add_argument("--target-mount", default=None,
@@ -34,6 +36,7 @@ def main():
                 parser.error(f"Untrusted helper dependency: {path}")
     sys.path.insert(0, str(lib))
     import system_setup_acpi as acpi
+    import system_setup_kernel_args as kernel_args
     import system_setup_memory as memory
     import system_setup_telemetry as telemetry
     import system_setup_vram as vram
@@ -54,6 +57,7 @@ def main():
                 "memory": memory_status,
                 "acpi": acpi.status(host),
                 "telemetry": telemetry.status(host),
+                "kernel_options": kernel_args.status(host),
                 "vram": vram.status(host),
                 "protocol": 2,
             }
@@ -80,6 +84,9 @@ def main():
                 result = telemetry.apply(host)
             elif args.action == "telemetry-restore":
                 result = telemetry.restore(host)
+            elif args.action == "kernel-options-set":
+                wanted = [item for item in args.kernel_options.split(",") if item]
+                result = kernel_args.apply(host, wanted)
             elif args.action == "vram-read":
                 result = vram.read(host)
             elif args.action == "vram-apply":

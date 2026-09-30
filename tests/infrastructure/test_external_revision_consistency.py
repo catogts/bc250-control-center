@@ -19,7 +19,6 @@ from bc250cc.infrastructure.gfx1013_compute_policy import (
     GFX1013_UPSTREAM,
     STEAMOS_GFX1013_BACKEND,
 )
-from bc250cc.infrastructure.health_repository import HealthRepository
 from bc250cc.infrastructure.tool_inventory import STANDARD_CU_URL, STEAMOS_CU_URL
 
 
@@ -42,11 +41,6 @@ def test_all_python_integration_inventories_share_manifest_provenance():
     assert GFX1013_REVIEWED_COMMIT == EXTERNAL_TOOLS["gfx1013_direct"].reviewed_revision
     assert STEAMOS_GFX1013_BACKEND == EXTERNAL_TOOLS["steamos_amdgpu"].upstream
     assert REVIEWED_REVISION == EXTERNAL_TOOLS["core_unlock"].reviewed_revision
-    expected = {
-        EXTERNAL_TOOLS[key].upstream
-        for key in ("cpu_smu_oc", "core_unlock", "cu_manager_standard", "nct6687")
-    }
-    assert {row[1] for row in HealthRepository._REPOSITORIES} == expected
 
     repository = DependenciasRepository.__new__(DependenciasRepository)
     repository._tool_dir = lambda: Path("/tmp/bc250-manifest-fixture")

@@ -75,8 +75,9 @@ class FlashTool:
     key: str
     binary: Source
     arguments: str
-    #: /CLRCFG resets the saved BIOS settings as part of the flash, so the
-    #: board does not need its CMOS cleared by hand afterwards.
+    #: /CLRCFG resets the saved BIOS settings as part of the flash. Owners
+    #: still needed the CMOS cleared by hand afterwards, so the page and the
+    #: USB kit ask for it after every image; this only records the flag.
     clears_settings: bool
 
 

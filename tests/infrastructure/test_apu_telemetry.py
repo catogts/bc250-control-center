@@ -73,3 +73,70 @@ def test_aliased_fclk_is_not_advertised_as_an_independent_clock(tmp_path):
     assert report["metrics"]["fclk"]["status"] == "unverified"
     assert report["metrics"]["fclk"]["value"] is None
     assert report["metrics"]["uclk"]["status"] == "missing"
+
+
+# ------------------------------------------------ 8-core layout vs SMU patch
+#
+# Readings from a real board (2026-09-29): MeiMeiDXE v3 with Core Unlock on
+# All Cores, on linux-cachyos-bc250 7.2.8-1.219. With the BIOS "SMU Reporting
+# Patch" off, every SMU-table reading was garbage; with it on, all were right.
+
+
+def _board(tmp_path, *, cores=8, parameters=(), vddgfx="799", edge="53000", sclk="1: 1000Mhz *"):
+    device = "sys/bus/pci/devices/0000:01:00.0"
+    files = {
+        f"{device}/vendor": "0x1002",
+        f"{device}/device": "0x13fe",
+        f"{device}/pp_dpm_sclk": sclk,
+        f"{device}/hwmon/hwmon1/name": "amdgpu",
+        f"{device}/hwmon/hwmon1/in0_label": "vddgfx",
+        f"{device}/hwmon/hwmon1/in0_input": vddgfx,
+        f"{device}/hwmon/hwmon1/temp1_input": edge,
+        **{f"sys/module/amdgpu/parameters/{name}": value for name, value in dict(parameters).items()},
+    }
+    for cpu in range(cores * 2):
+        files[f"sys/devices/system/cpu/cpu{cpu}/topology/physical_package_id"] = "0"
+        files[f"sys/devices/system/cpu/cpu{cpu}/topology/core_id"] = str(cpu % cores)
+    for name, payload in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(payload)
+    return collect_apu_telemetry(root=tmp_path)
+
+
+MASTAG_KERNEL = {"cs_eight_core_map": "N", "cs_metrics_cache_ms": "25", "cs_activity_cache_ms": "25"}
+GARBAGE = {"vddgfx": "44587", "edge": "0", "sclk": "0: 350Mhz\n1: 4764Mhz *\n2: 2230Mhz"}
+
+
+def test_an_unpatched_smu_on_linux_cachyos_bc250_is_caught(tmp_path):
+    """The detector used to require cs_legacy_8core_metrics, removed on 2026-09-17."""
+    report = _board(tmp_path, parameters=MASTAG_KERNEL, **GARBAGE)
+    assert report["layout_mismatch_suspected"] is True
+    assert report["metrics_decode"] == "patched-eight-core"
+    assert report["recommendation"] == "enable_smu_reporting_patch"
+    assert report["metrics"]["sclk"]["status"] == "invalid"
+
+
+def test_the_same_board_with_the_smu_patch_reads_clean(tmp_path):
+    report = _board(tmp_path, parameters=MASTAG_KERNEL)
+    assert report["layout_mismatch_suspected"] is False
+    assert report["recommendation"] is None
+    assert (report["metrics"]["voltage"]["value"], report["metrics"]["temperature"]["value"]) == (799, 53.0)
+    assert report["metrics"]["sclk"]["value"] == 1000
+
+
+def test_a_kernel_reading_only_the_stock_layout_is_told_to_turn_the_patch_off(tmp_path):
+    report = _board(tmp_path, **GARBAGE)
+    assert report["metrics_decode"] == "stock"
+    assert report["recommendation"] == "disable_smu_reporting_patch"
+
+
+def test_six_cores_are_never_a_layout_mismatch(tmp_path):
+    assert _board(tmp_path, cores=6, parameters=MASTAG_KERNEL, **GARBAGE)["layout_mismatch_suspected"] is False
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("350", 350), ("2230", 2230), ("3882", None), ("4764", None)])
+def test_a_gpu_clock_past_any_bc250_range_is_not_a_reading(raw, expected):
+    from bc250cc.domain.telemetry import gpu_clock_mhz
+
+    assert gpu_clock_mhz(raw) == expected

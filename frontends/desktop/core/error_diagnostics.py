@@ -31,6 +31,59 @@ class _Rule:
         return any(re.search(pattern, value, re.IGNORECASE) for pattern in self.patterns)
 
 
+#: BC250-GPU-003. amdgpu.cs_legacy_8core_metrics=1, the advice this used to
+#: give, was removed from linux-cachyos-bc250 on 2026-09-17. Verified on a
+#: board with MeiMeiDXE v3: with that kernel, eight cores read correctly only
+#: with the BIOS's "SMU Reporting Patch" on; with it off every GPU reading was
+#: garbage (44587 mV, 0 °C, 4764 MHz).
+GPU_TELEMETRY_LAYOUT_CAUSE = (
+    "With all eight CPU cores on, the SMU writes its metrics table in one of two layouts and "
+    "the kernel has to read the same one. The SMU firmware patch widens the table for eight "
+    "cores: on RescueMei's MeiMeiDXE v3 BIOS it is \"SMU Reporting Patch\" (Advanced › Patch "
+    "Options), off by default. Unlocking the cores from Control Center never applies it."
+)
+GPU_TELEMETRY_LAYOUT_ACTION = (
+    "With linux-cachyos-bc250, which reads the eight-core layout, turn SMU Reporting Patch on "
+    "and keep Core Unlock on All Cores (or flash the UEFI v2.2 firmware, which already carries "
+    "the patch). With a kernel that reads only the stock layout, turn it off, or use "
+    "linux-cachyos-bc250. Hardware control keeps working meanwhile."
+)
+
+#: The dashboard's guide for the same fault, in plain steps. The recommended
+#: route is MeiMeiDXE v3 with its SMU patch on: the settings below are the ones
+#: verified on a real board. Bazzite's kernel (7.2.4-ogc3.1) has no cs_*
+#: parameters and reads only the stock table, so there the patch must be off.
+#: A support code, the same in every language.
+TELEMETRY_GUIDE_CODE = "BC250-GPU-003"
+TELEMETRY_GUIDE_TITLE = "GPU readings are wrong with 8 cores"
+TELEMETRY_GUIDE_BODY = (
+    "Your board is fine: only the numbers are wrong. With 8 cores on, the SMU has to be "
+    "patched for them, or the GPU temperature, voltage and clock read as nonsense. Control "
+    "Center's core unlock cannot patch it; the BIOS can."
+)
+TELEMETRY_GUIDE_PATCH_ON = (
+    "Recommended: unlock the cores from the BIOS with MeiMeiDXE v3 and turn its SMU patch on.\n\n"
+    "1. Flash MeiMeiDXE v3 from the {page} page, if the board does not have it yet.\n"
+    "2. Restart and enter the BIOS: Advanced › MeiMeiDXEv3 Menu.\n"
+    "3. Set Core Unlock to All Cores, SMU Unlock to Enabled and SMU Reporting Patch to Enabled.\n"
+    "4. Press F10 to save and restart."
+)
+TELEMETRY_GUIDE_PATCH_OFF = (
+    "This system's kernel (Bazzite's, for example) cannot read the patched table yet, so here "
+    "it is the other way round:\n\n"
+    "1. Restart and enter the BIOS: Advanced › MeiMeiDXEv3 Menu.\n"
+    "2. Keep Core Unlock on All Cores and set SMU Reporting Patch to Disabled.\n"
+    "3. Press F10 to save and restart."
+)
+TELEMETRY_GUIDE_BAZZITE_NOTE = (
+    "On Bazzite, set SMU Reporting Patch to Disabled instead: its kernel cannot read the "
+    "patched table yet."
+)
+TELEMETRY_GUIDE_SOURCES = (
+    TELEMETRY_GUIDE_TITLE, TELEMETRY_GUIDE_BODY, TELEMETRY_GUIDE_PATCH_ON,
+    TELEMETRY_GUIDE_PATCH_OFF, TELEMETRY_GUIDE_BAZZITE_NOTE,
+)
+
 _RULES = (
     # First on purpose. Cyan's fix-metrics / fix-freq replace two GPU sensor
     # files with patched copies through a bind mount. When one is left behind
@@ -53,6 +106,16 @@ _RULES = (
         "This kernel cannot do the Cyan metrics fix.",
         "Fix metrics makes Cyan publish its own gpu_metrics file. The running kernel does not expose the file it needs to replace, so the governor refuses to start while that option is on. Nothing on the hardware was changed.",
         "Turn off Fix metrics in Cyan kernel compatibility and apply again. Leave Fix frequencies off too if the start still fails. A BC-250 patched kernel is the other way out.",
+    ),
+    # Adding the OptiScaler launch option edits Steam's own settings file,
+    # one game or the whole library at a time.
+    _Rule(
+        "BC250-STEAM-001",
+        (r"close steam completely", r"no installed steam game", r"no steam profile was found",
+         r"steam profile has no apps section", r"change could not be read back"),
+        "Steam's settings could not be changed.",
+        "Control Center adds the launch option by editing Steam's own settings file. Steam has to be closed while that happens, and the Steam profile needs at least one game started from it.",
+        "Close Steam completely (Steam > Exit, not just its window), start the game once from Steam if it never ran, then try again. The previous settings file is kept beside it as a backup.",
     ),
     _Rule(
         "BC250-AUTH-001",
@@ -81,14 +144,14 @@ _RULES = (
         (r"permission denied", r"operation not permitted", r"access denied", r"read-only file system"),
         "Linux refused access to a required file or device.",
         "A helper, device node, configuration file, or immutable system path has ownership or permission settings that do not allow this operation.",
-        "Use System Health to verify permissions and helpers. On Bazzite or SteamOS, finish any pending deployment and restart before retrying.",
+        "Reinstall this version so its helpers are in place. On Bazzite or SteamOS, finish any pending deployment and restart before retrying.",
     ),
     _Rule(
         "BC250-HELPER-001",
         (r"helper.*(?:missing|not found|unavailable)", r"protected helper", r"unsafe ownership", r"unsafe.*permissions"),
         "A protected BC250 helper is missing or failed its safety check.",
         "The application and its root-owned helper are from different installs, or another toolkit changed the helper's owner, mode, or path.",
-        "Reinstall or repair BC250 Control Center, then run System Health. Do not copy a helper manually into /usr/libexec.",
+        "Reinstall BC250 Control Center. Do not copy a helper manually into /usr/libexec.",
     ),
     _Rule(
         "BC250-PROTOCOL-001",
@@ -124,7 +187,7 @@ _RULES = (
         (r"unit .*not found", r"service.*not[- ]found", r"service.*does not exist", r"no such.*service", r"unit not found"),
         "The required service definition was not found.",
         "The tool may be present without its systemd or OpenRC service, or a rollback left a service pointing to a removed file.",
-        "Prepare that module again from the Dashboard, then install its service. Use System Health if an old service is still detected.",
+        "Prepare that module again from the Dashboard, then install its service.",
     ),
     _Rule(
         "BC250-SERVICE-003",
@@ -188,7 +251,7 @@ _RULES = (
         (r"command not found", r"no such file or directory", r"executable.*not found", r"returned an empty command", r": command not found", r"needs one boolean", r"does not accept additional arguments", r"not prepared", r"is not installed", r"was not found", r"does not exist at", r"is missing from", r"unavailable in this build", r"terminal integration is required", r"qualification", r"bundle error", r"refusing .*without --", r"evidence error", r"expects a .*path", r"command is required", r"no custom values", r"integration script", r"requires --", r"runner is unavailable", r"executor is invalid", r"path is invalid"),
         "A required program or generated command is missing.",
         "Dependencies were not prepared, a toolkit was removed, or the active distribution provides the program under a different package or path.",
-        "Return to the Dashboard and prepare the affected module. If it was already prepared, run System Health to find the missing path.",
+        "Return to the Dashboard and prepare the affected module.",
     ),
     _Rule(
         "BC250-KERNEL-001",
@@ -268,7 +331,7 @@ _RULES = (
          r"conflicting.*(?:driver|table|bootloader|ownership)"),
         "Another BC-250 toolkit already owns this setting.",
         "A different tool installed its own driver, boot entry, or system table for the same job. Two owners for one setting is what breaks it.",
-        "Remove or disable the other tool's copy of this piece, then run this step again. System Health lists what else was found.",
+        "Remove or disable the other tool's copy of this piece, then run this step again.",
     ),
     _Rule(
         "BC250-FAN-001",
@@ -298,8 +361,8 @@ _RULES = (
         (r"cs_legacy_8core_metrics", r"per-core telemetry", r"8[- ]core.*(?:telemetry|metrics)",
          r"telemetry.*(?:scrambled|nonsense)", r"freq1_input", r"pp_dpm_sclk"),
         "The GPU readings cannot be trusted right now.",
-        "With the two extra CPU cores unlocked on a stock BIOS, the board reports a GPU clock and temperature that are wrong. This is a known BC-250 firmware limit, not a fault in this machine.",
-        "Add amdgpu.cs_legacy_8core_metrics=1 to the kernel command line and restart, or use a BIOS that carries the SMU telemetry patch. Hardware control keeps working meanwhile.",
+        GPU_TELEMETRY_LAYOUT_CAUSE,
+        GPU_TELEMETRY_LAYOUT_ACTION,
     ),
     _Rule(
         "BC250-PLATFORM-001",
@@ -420,11 +483,32 @@ DIAGNOSTIC_SOURCES = tuple(dict.fromkeys((
     *error_catalog.translatable_strings(),
     *TERMINAL_SOURCES,
     *(value for rule in _RULES for value in (rule.summary, rule.cause, rule.action)),
+    *TELEMETRY_GUIDE_SOURCES,
     *(value for _code, _markers, summary, cause, action in _CONTEXT_FALLBACKS for value in (summary, cause, action)),
     "The operation could not be completed.",
     "The component returned a failure that does not yet match a more specific diagnostic rule.",
     "Read the technical detail below, refresh the affected page, and retry once. If it repeats, copy this complete diagnostic for support.",
 )))
+
+
+def diagnosis_for(code: str) -> ErrorDiagnosis:
+    """One rule's explanation by code, for a screen that already knows the fault."""
+    rule = next(rule for rule in _RULES if rule.code == code)
+    return ErrorDiagnosis(rule.code, rule.summary, rule.cause, rule.action)
+
+
+def explain_code(code: str) -> ErrorDiagnosis | None:
+    """The explanation behind a code already printed somewhere, or None."""
+    for rule in _RULES:
+        if rule.code == code:
+            return ErrorDiagnosis(rule.code, rule.summary, rule.cause, rule.action)
+    for fallback, _markers, summary, cause, action in _CONTEXT_FALLBACKS:
+        if fallback == code:
+            return ErrorDiagnosis(fallback, summary, cause, action)
+    for entry in error_catalog.all_codes():
+        if entry.code == code:
+            return ErrorDiagnosis(entry.code, entry.summary, entry.cause, entry.action)
+    return None
 
 
 def _clean_detail(value: object) -> str:

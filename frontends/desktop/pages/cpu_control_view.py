@@ -47,7 +47,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Sequence
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -78,7 +78,7 @@ from ..components.card_navigation import EditableCardNavigation
 from ..components.core_monitor import CoreGrid, CoreReading
 from ..components.page_widgets import SectionCard, caption, subpanel
 from ..components.widgets import PillLabel, icon
-from ..i18n import tr, tr_format
+from ..i18n import shipped_name, tr, tr_format
 from ..theme import COLORS
 
 #: The BC-250 exposes eight physical core positions, so the strip is
@@ -89,6 +89,14 @@ from ..theme import COLORS
 MANUAL_SCALE_HINT = (
     "Enter the exact scale you want. It is stress-tested in 100 MHz steps "
     "before it stays applied, the way automatic detection tests its own."
+)
+
+#: The danger zone's box for the upstream core-unlock tool's "-f".
+IGNORE_CORE_MASK_LABEL = "Force a non-standard core mask (-f)"
+IGNORE_CORE_MASK_HINT = (
+    "The unlock tool refuses boards whose core mask is not 0x77, because a "
+    "different mask usually means the factory disabled cores that were "
+    "defective. This passes -f to skip that check: all 8 cores are enabled."
 )
 
 #: Width below which the two workspace columns stack. Same breakpoint the GPU
@@ -198,15 +206,36 @@ class CpuProfile:
     def values(self) -> tuple[int, int, int]:
         return (self.frequency_mhz, self.vid_mv, self.temperature_c)
 
+    def shown_name(self) -> str:
+        return tr(self.name)
+
 
 #: The three tiers this project has always shipped. The fourth entry the old
 #: list carried sat 150 MHz from its neighbour at the same VID, so it read as
 #: a slider with an arbitrary notch in it rather than as a choice.
 DEFAULT_CPU_PROFILES: tuple[CpuProfile, ...] = (
-    CpuProfile("board_average", "Placa media", 3550, 1050, 90),
-    CpuProfile("mid_point", "Punto medio", 3850, 1150, 90),
-    CpuProfile("safe_maximum", "Max seguro", 4000, 1275, 90),
+    CpuProfile("board_average", "Average board", 3550, 1050, 90),
+    CpuProfile("mid_point", "Mid point", 3850, 1150, 90),
+    CpuProfile("safe_maximum", "Safe maximum", 4000, 1275, 90),
 )
+
+#: Names these tiers shipped under before 1.20.4. The Spanish ones were the
+#: translation sources, so "Max seguro" stayed Spanish in 27 languages and all
+#: three stayed Spanish in English. A slot saved under any of them, in any
+#: language, is read back as the shipped name above.
+LEGACY_CPU_PROFILE_NAMES: dict[str, tuple[str, ...]] = {
+    "board_average": ("Placa media", "Mid board"),
+    "mid_point": ("Punto medio",),
+    "safe_maximum": ("Max seguro", "Max seguro UI", "UI safe max"),
+}
+
+
+def cpu_profile_name(key: str, name: object) -> str:
+    """The name to store for ``key``: the shipped source, or the owner's own."""
+    default = next((profile for profile in DEFAULT_CPU_PROFILES if profile.key == key), None)
+    if default is None:
+        return str(name or "").strip()
+    return shipped_name(name, default.name, LEGACY_CPU_PROFILE_NAMES.get(key, ()))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -396,6 +425,54 @@ class ToggleRow(QFrame):
             row.addWidget(trailing, 0, Qt.AlignmentFlag.AlignVCenter)
 
 
+class CheckLine(QWidget):
+    """A check box with a wrapping label beside it; the label toggles it too.
+
+    ``QCheckBox`` cannot wrap its own text, and a long translation was clipped
+    at the card's edge. It takes the 27 px of the compact ``IdentityRow`` it
+    replaced: the indicator is 20 px tall, so the margins are 3 and 4.
+    """
+
+    def __init__(self, label: str, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._source = label
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 3, 0, 4)
+        row.setSpacing(8)
+        self.check = QCheckBox()
+        self.check.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.addWidget(self.check, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.label = QLabel(tr(label))
+        self.label.setWordWrap(True)
+        self.label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.label.installEventFilter(self)
+        row.addWidget(self.label, 1)
+
+    def setToolTip(self, text: str) -> None:  # noqa: N802 (Qt)
+        super().setToolTip(text)
+        self.check.setToolTip(text)
+        self.label.setToolTip(text)
+
+    def setEnabled(self, enabled: bool) -> None:  # noqa: N802 (Qt)
+        super().setEnabled(enabled)
+        if not enabled:
+            self.check.setChecked(False)
+
+    def retranslate(self) -> None:
+        self.label.setText(tr(self._source))
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 (Qt)
+        if (
+            watched is self.label
+            and event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.LeftButton
+            and self.isEnabled()
+        ):
+            self.check.toggle()
+            return True
+        return super().eventFilter(watched, event)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Profile card — click selects, pencil edits
 # ─────────────────────────────────────────────────────────────────────────────
@@ -426,7 +503,7 @@ class CpuProfileCard(EditableCardNavigation, QFrame):
 
         head = QHBoxLayout()
         head.setSpacing(6)
-        self._name_label = QLabel(tr(profile.name))
+        self._name_label = QLabel(profile.shown_name())
         self._name_label.setProperty("profileTitle", True)
         self._name_label.setMinimumWidth(0)
         head.addWidget(self._name_label, 1)
@@ -470,7 +547,7 @@ class CpuProfileCard(EditableCardNavigation, QFrame):
         editor_head.addWidget(reset, 0)
         editor.addLayout(editor_head)
 
-        self._name_edit = QLineEdit(profile.name)
+        self._name_edit = QLineEdit(profile.shown_name())
         self._name_edit.setPlaceholderText(tr("Profile name"))
         self._name_edit.setMaxLength(28)
         editor.addWidget(self._name_edit)
@@ -550,7 +627,9 @@ class CpuProfileCard(EditableCardNavigation, QFrame):
         self.style().polish(self)
 
     def begin_edit(self) -> None:
-        self._name_edit.setText(self._profile.name)
+        # The field shows what the card shows; a shipped name stays a
+        # translation source only as long as nobody retypes it.
+        self._name_edit.setText(self._profile.shown_name())
         self._frequency_spin.setValue(self._profile.frequency_mhz)
         self._vid_spin.setValue(self._profile.vid_mv)
         self._temperature_spin.setValue(self._profile.temperature_c)
@@ -573,7 +652,7 @@ class CpuProfileCard(EditableCardNavigation, QFrame):
 
     # -- internal -------------------------------------------------------------
     def _restore_default(self) -> None:
-        self._name_edit.setText(self._default.name)
+        self._name_edit.setText(self._default.shown_name())
         self._frequency_spin.setValue(self._default.frequency_mhz)
         self._vid_spin.setValue(self._default.vid_mv)
         self._temperature_spin.setValue(self._default.temperature_c)
@@ -588,7 +667,7 @@ class CpuProfileCard(EditableCardNavigation, QFrame):
         )
 
     def _commit(self) -> None:
-        name = self._name_edit.text().strip() or self._default.name
+        name = cpu_profile_name(self._default.key, self._name_edit.text())
         self._profile = replace(
             self._profile,
             name=name,
@@ -602,7 +681,7 @@ class CpuProfileCard(EditableCardNavigation, QFrame):
 
     def _sync_view(self) -> None:
         profile = self._profile
-        self._name_label.setText(tr(profile.name))
+        self._name_label.setText(profile.shown_name())
         self._value_label.setText(profile.summary())
         self._detail_label.setText(profile.detail())
 
@@ -626,7 +705,7 @@ class CpuControlView(QWidget):
         apply_requested(object CpuTuningRequest)
         profile_changed(object CpuProfile)
         persistence_requested(str)     # 'save' | 'remove' | 'review'
-        unlock_cores_requested()
+        unlock_cores_requested(bool ignore_core_mask)
         firmware_persistence_requested()
 
     Inputs::
@@ -638,7 +717,7 @@ class CpuControlView(QWidget):
     apply_requested = pyqtSignal(object)
     profile_changed = pyqtSignal(object)
     persistence_requested = pyqtSignal(str)
-    unlock_cores_requested = pyqtSignal()
+    unlock_cores_requested = pyqtSignal(bool)
     firmware_persistence_requested = pyqtSignal()
     export_to_decky_requested = pyqtSignal()
 
@@ -1012,13 +1091,14 @@ class CpuControlView(QWidget):
             )
         )
 
-        # The detected shape, the upstream tool and the governor line all
-        # repeated something already on screen: the core monitor above says
-        # the shape, and the button's own state says whether the workflow can
-        # run. Only the gate that decides that is kept.
-        self.unlock_support_row = IdentityRow("Unlock support", risk_panel, compact=True)
-        self.unlock_support_row.set_first(True)
-        risk_box.addWidget(self.unlock_support_row)
+        # This row used to say "Unlock support: Ready", which the button's own
+        # state already said; that now lives in the button's tooltip. The row
+        # holds upstream's "-f" instead: its tool refuses a core mask other
+        # than 0x77, and some owners run boards that pass stress tests anyway.
+        self.ignore_mask_line = CheckLine(IGNORE_CORE_MASK_LABEL, risk_panel)
+        self.ignore_mask_line.setToolTip(tr(IGNORE_CORE_MASK_HINT))
+        self.ignore_mask_line.setEnabled(False)
+        risk_box.addWidget(self.ignore_mask_line)
 
         self.firmware_button = QPushButton(tr("Firmware persistence guide"))
         self.firmware_button.setProperty("linkButton", True)
@@ -1031,7 +1111,9 @@ class CpuControlView(QWidget):
         self.unlock_button.setProperty("dangerAction", True)
         self.unlock_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.unlock_button.setEnabled(False)
-        self.unlock_button.clicked.connect(self.unlock_cores_requested)
+        self.unlock_button.clicked.connect(
+            lambda: self.unlock_cores_requested.emit(self.ignore_mask_line.check.isChecked())
+        )
         risk_box.addWidget(self.unlock_button)
 
         # The GPU module leaves more air above its danger zone than between the
@@ -1201,10 +1283,15 @@ class CpuControlView(QWidget):
                 self._configuration_status.set_tone("green")
 
     def _apply_unlock(self, unlock: CoreUnlockState) -> None:
-        self.unlock_support_row.set_value(
-            tr("Ready") if unlock.helper_ready else tr("Not installed")
+        self.unlock_button.setToolTip(
+            tr_format(
+                "Unlock support: {state}",
+                state=tr("Ready") if unlock.helper_ready else tr("Not installed"),
+            )
         )
         self.unlock_button.setEnabled(bool(unlock.unlock_allowed))
+        # Unchecks itself whenever the unlock is not available.
+        self.ignore_mask_line.setEnabled(bool(unlock.unlock_allowed))
 
     def _select_profile_matching(
         self, frequency: int, vid: int, temperature: int
@@ -1229,7 +1316,8 @@ class CpuControlView(QWidget):
             self.identity_rows[key].set_label(label)
         for key, label in self.RUNTIME_ROWS:
             self.runtime_cards[key].set_label(label)
-        self.unlock_support_row.set_label("Unlock support")
+        self.ignore_mask_line.retranslate()
+        self.ignore_mask_line.setToolTip(tr(IGNORE_CORE_MASK_HINT))
         self._busy_badge.retranslate()
         for profile_card in self._profile_cards:
             profile_card.retranslate()

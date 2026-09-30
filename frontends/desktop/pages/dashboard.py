@@ -38,8 +38,18 @@ from ..components.responsive import (
     clear_grid,
     configure_responsive_scroll_area,
 )
+from ..components.toast import show_toast
 from ..components.widgets import InfoDialog
+from ..core.attention import attention_items
 from ..core.dashboard_presenter import FAN_OWNER_LABELS
+from ..core.error_diagnostics import (
+    TELEMETRY_GUIDE_BAZZITE_NOTE,
+    TELEMETRY_GUIDE_BODY,
+    TELEMETRY_GUIDE_CODE,
+    TELEMETRY_GUIDE_PATCH_OFF,
+    TELEMETRY_GUIDE_PATCH_ON,
+    TELEMETRY_GUIDE_TITLE,
+)
 from ..core.external_links import open_external_url, update_checks_enabled
 from ..core.gddr6_monitor import EXTERNAL_SOURCE, gddr6_monitor_for
 from ..core.state import DashboardState, state_cache_for
@@ -299,6 +309,8 @@ class DashboardPage(QWidget):
         # panel covering the shell — and every one of them needs to know
         # whether bringing it back is still the right thing to do.
         self._update_pending = False
+        # Notices already shown this session (see _announce_attention).
+        self._announced: set[str] = set()
         # Parented to this page, so a pending retry dies with it rather than
         # firing into a destroyed widget once this page is gone.
         self._callout_retries = 0
@@ -467,6 +479,14 @@ class DashboardPage(QWidget):
             self.update_callout.hide()
             self._callout_retry_timer.start(400)
             return
+        updater = getattr(window, "update_dialog", None) if window is not None else None
+        if updater is not None and updater.isVisible():
+            # The updater is open, so the bubble would only repeat it — drawn
+            # on top of the window that is installing the very update it
+            # announces. It comes back if the updater is closed unfinished.
+            self.update_callout.hide()
+            self._callout_retry_timer.start(400)
+            return
         if window is None or not window.isVisible():
             # A cached release check can resolve before the main window is
             # actually shown - the common case on a cold start straight into
@@ -627,10 +647,38 @@ class DashboardPage(QWidget):
         ).exec()
 
     def _request_telemetry_repair(self) -> None:
+        state = getattr(self, "state", None)
+        if state is not None and not state.gpu_telemetry_repair_available:
+            # Nothing to apply from here on this kernel: the fix is in the BIOS.
+            self._show_telemetry_layout_guide()
+            return
         try:
             self.controller.reparar_telemetria_8core()
         except Exception:
             logger.exception("Eight-core GPU telemetry repair could not be started")
+
+    def _show_telemetry_layout_guide(self) -> None:
+        # Plain steps for the kernel that is running. The recommended route is
+        # MeiMeiDXE v3 with its SMU patch on; a kernel that reads only the
+        # stock table (Bazzite's) needs the patch off instead. When the layout
+        # could not be told, the recommended steps carry the Bazzite exception.
+        recommendation = getattr(getattr(self, "state", None), "gpu_metrics_recommendation", "")
+        if recommendation == "disable_smu_reporting_patch":
+            steps = tr(TELEMETRY_GUIDE_PATCH_OFF)
+        else:
+            steps = tr_format(TELEMETRY_GUIDE_PATCH_ON, page=tr("Firmware (BIOS)"))
+            if recommendation != "enable_smu_reporting_patch":
+                steps += "\n\n" + tr(TELEMETRY_GUIDE_BAZZITE_NOTE)
+        # Everything goes in the body: the notice box is sized for one line
+        # and clipped longer text.
+        InfoDialog(
+            TELEMETRY_GUIDE_TITLE,
+            f"{tr(TELEMETRY_GUIDE_BODY)}\n\n{steps}",
+            icon_name="warning_orange",
+            parent=self,
+            eyebrow=TELEMETRY_GUIDE_CODE,
+            tone="orange",
+        ).exec()
 
     def apply_state(self, state: DashboardState) -> None:
         if self._live_sample is not None:
@@ -641,6 +689,41 @@ class DashboardPage(QWidget):
         self._apply_cpu_card(state)
         self._apply_fan_card(state)
         self.readiness.set_state(state)
+        self._announce_attention(state)
+
+    def _announce_attention(self, state: DashboardState) -> None:
+        """Say once per session what the installed tools need, as a toast.
+
+        Only while the dashboard is on screen, so a notice is never spent
+        on a page the owner is not looking at.
+        """
+        if not self.isVisible():
+            return
+        # Halfway through an install a driver or helper reads as damaged;
+        # the inventory is read again when the workflow ends.
+        window = self.window()
+        watch = getattr(window, "workflow_watch", None)
+        console = getattr(window, "console", None)
+        if getattr(watch, "pending", 0) or getattr(console, "busy", False):
+            return
+        # Not over the welcome screen or the tour: the first steps come first,
+        # and the window asks again when they end (announce_pending_attention).
+        presenting = getattr(window, "is_presenting_overlay", None)
+        if getattr(window, "_first_run_pending", False) or (
+            callable(presenting) and presenting()
+        ):
+            return
+        for item in attention_items(getattr(state, "preparation_tools", {}) or {}):
+            if item.key in self._announced:
+                continue
+            self._announced.add(item.key)
+            show_toast(self, item.title, item.message, tone=item.tone)
+
+    def announce_pending_attention(self) -> None:
+        """Say what was held back while the welcome screen or tour was up."""
+        state = getattr(self, "state", None)
+        if state is not None:
+            self._announce_attention(state)
 
     def _apply_board_header(self, state: DashboardState) -> None:
         """What the machine is, and whether anything needs looking at."""
@@ -774,15 +857,27 @@ class DashboardPage(QWidget):
 
         repair_pending = state.gpu_telemetry_repair_pending
         repair_needed = state.gpu_metrics_layout_mismatch or repair_pending
+        # Without a boot argument to apply (every current BC-250 kernel), the
+        # same button explains the BIOS setting instead of sitting disabled.
+        guide_only = (
+            state.gpu_metrics_layout_mismatch
+            and not state.gpu_telemetry_repair_available
+            and not repair_pending
+        )
         self.telemetry_repair_button.setVisible(repair_needed)
         self.telemetry_repair_button.setEnabled(
-            state.gpu_metrics_layout_mismatch
-            and state.gpu_telemetry_repair_available
-            and not repair_pending
+            guide_only
+            or (
+                state.gpu_metrics_layout_mismatch
+                and state.gpu_telemetry_repair_available
+                and not repair_pending
+            )
         )
         self.telemetry_repair_button.setText(
             tr("Restart to finish telemetry repair")
             if repair_pending
+            else tr("How to fix BC250 telemetry")
+            if guide_only
             else tr("Repair BC250 telemetry")
         )
         diagnostic_hint = tr("Advanced GPU diagnostics") if invalid_telemetry else ""

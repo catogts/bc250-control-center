@@ -206,24 +206,22 @@ def _backup_block(tool: str) -> list[str]:
 
 
 def _after_flash(family: FirmwareFamily) -> list[str]:
-    if family.tool.clears_settings:
-        next_steps = [_echo("Next the board switches off. Power it on again: its settings were reset.")]
-    else:
-        # The settings the old BIOS saved stay in the CMOS, and the new one
-        # cannot start with them: the board powers on to a black screen. Said
-        # before the key press, in a box, because it is the one thing that
-        # makes a finished flash look like a dead board.
-        rule = "=" * 68
-        next_steps = [
-            _echo(rule),
-            _echo("  IMPORTANT - READ BEFORE PRESSING A KEY"),
-            _echo("  The board switches off next. When powered on again it shows"),
-            _echo("  NO PICTURE until the CMOS is cleared. That is expected:"),
-            _echo("  unplug the power, remove the CMOS battery for a minute,"),
-            _echo("  put it back, then power on. The first start can take a"),
-            _echo("  minute with a black screen."),
-            _echo(rule),
-        ]
+    # The settings the old BIOS saved stay in the CMOS, and the new one can
+    # fail to start with them: the board powers on to a black screen. That
+    # holds for MeiMeiDXE too, whose /CLRCFG did not spare its owners the
+    # battery. Said before the key press, in a box, because it is the one
+    # thing that makes a finished flash look like a dead board.
+    rule = "=" * 68
+    next_steps = [
+        _echo(rule),
+        _echo("  IMPORTANT - READ BEFORE PRESSING A KEY"),
+        _echo("  The board switches off next. When powered on again it shows"),
+        _echo("  NO PICTURE until the CMOS is cleared. That is expected:"),
+        _echo("  unplug the power, remove the CMOS battery for a minute,"),
+        _echo("  put it back, then power on. The first start can take a"),
+        _echo("  minute with a black screen."),
+        _echo(rule),
+    ]
     return [
         _echo(""),
         _echo("If the tool above finished without an error, the new BIOS is installed."),
@@ -302,9 +300,7 @@ def _restore(family: FirmwareFamily) -> bytes:
 
 def _readme(family: FirmwareFamily, title: str, rom: _Rom, prepared: str) -> bytes:
     settings = (
-        "The flash resets the BIOS settings by itself."
-        if family.tool.clears_settings
-        else "After flashing, clear CMOS: remove the coin battery for a minute.\r\n"
+        "After flashing, clear CMOS: remove the coin battery for a minute.\r\n"
         "   Until then the board shows no picture; that is expected."
     )
     original = [

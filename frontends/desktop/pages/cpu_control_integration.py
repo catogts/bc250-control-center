@@ -69,6 +69,7 @@ from .cpu_control_view import (
     CpuTuningRequest,
     CpuTuningState,
     RuntimeReading,
+    cpu_profile_name,
 )
 
 _ATTRIBUTE = "_unified_cpu_control"
@@ -124,7 +125,8 @@ def _load_profiles() -> tuple[CpuProfile, ...]:
         profiles.append(
             replace(
                 default,
-                name=name,
+                # A default saved in some language is the shipped name again.
+                name=cpu_profile_name(default.key, name),
                 frequency_mhz=frequency,
                 vid_mv=vid,
                 temperature_c=temperature,
@@ -148,7 +150,7 @@ def _persist_profile(profile: CpuProfile) -> None:
     settings = application_settings()
     prefix = _profile_prefix(slot)
     settings.setValue(prefix + "key", profile.key)
-    settings.setValue(prefix + "name", profile.name)
+    settings.setValue(prefix + "name", cpu_profile_name(profile.key, profile.name))
     settings.setValue(prefix + "frequency", int(profile.frequency_mhz))
     settings.setValue(prefix + "vid", int(profile.vid_mv))
     settings.setValue(prefix + "temperature", int(profile.temperature_c))
@@ -326,8 +328,10 @@ class CpuControlController:
         since nothing here touches the SMU.
         """
         page = self.page
+        # Decky shows the names as sent, so they go in the panel's language,
+        # the way the fan profiles already do.
         payload = [
-            {"key": profile.key, "name": profile.name, "frequency": profile.frequency_mhz, "vid": profile.vid_mv}
+            {"key": profile.key, "name": tr(profile.name), "frequency": profile.frequency_mhz, "vid": profile.vid_mv}
             for profile in self.view.profiles()
         ]
 

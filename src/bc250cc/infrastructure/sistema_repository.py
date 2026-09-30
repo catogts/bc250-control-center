@@ -28,7 +28,6 @@ from bc250cc.infrastructure.gpu_fdinfo import (
     busy_percent,
 )
 from bc250cc.infrastructure.gpu_repository import GPURepository
-from bc250cc.infrastructure.health_repository import HealthRepository
 from bc250cc.infrastructure.memory_runtime import read_memory_runtime_state
 from bc250cc.infrastructure.persistence.activity_journal import activity_journal_path
 from bc250cc.infrastructure.persistence.configuracion_local import ConfiguracionLocal
@@ -59,7 +58,7 @@ _GPU_BUSY_CACHE_LOCK = threading.Lock()
 _GPU_BUSY_LOCK = threading.Lock()
 
 
-class SistemaRepository(PrivilegeRepository, TerminalRepository, DependenciasRepository, DriversRepository, GPURepository, CPURepository, CURepository, FanRepository, HealthRepository, RecoveryRepository, Gddr6MemoryTempRepository):
+class SistemaRepository(PrivilegeRepository, TerminalRepository, DependenciasRepository, DriversRepository, GPURepository, CPURepository, CURepository, FanRepository, RecoveryRepository, Gddr6MemoryTempRepository):
     def __init__(self):
         self.configuracion = ConfiguracionLocal()
         self.hwmons = []

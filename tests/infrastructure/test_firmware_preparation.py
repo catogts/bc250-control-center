@@ -220,7 +220,7 @@ def test_a_cancel_arriving_after_the_erase_is_ignored(tmp_path):
         erased.append(name)
 
     world.erase_to_empty_mbr = erase
-    report = _preparation(tmp_path, world).run(
+    _preparation(tmp_path, world).run(
         _plan(), STICK, progress=lambda *_a: None, cancelled=lambda: bool(erased)
     )
 
@@ -348,7 +348,7 @@ def test_the_logo_goes_in_before_the_drive_is_touched(tmp_path, monkeypatch):
         _Store(tmp_path), world, list_drives=world.list_drives, sleep=lambda _s: None,
         clock=iter(range(0, 10_000)).__next__, build_logo=build,
     )
-    report = preparation.run(
+    preparation.run(
         _logo_plan(monkeypatch, BASE_ROM, BASE), STICK,
         progress=lambda step, fraction, detail: steps.append(step),
     )
@@ -426,7 +426,7 @@ def test_the_real_builder_writes_a_verified_image_to_the_usb(tmp_path, monkeypat
     plan = replace(plan, logo=jpeg, files=tuple(
         replace(item, logo=jpeg) if item.logo is not None else item for item in plan.files
     ))
-    report = _preparation(tmp_path, world).run(plan, STICK, progress=lambda *_a: None)
+    _preparation(tmp_path, world).run(plan, STICK, progress=lambda *_a: None)
     written = (world.usb / "BC250" / "FIRMWARE" / "LOGO-SYNTH.ROM").read_bytes()
     assert written == bios_image.image(jpeg)
     assert read_logo(written, decompress=lzma1.decompress).picture == jpeg

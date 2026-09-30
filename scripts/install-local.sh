@@ -131,11 +131,43 @@ missing_python_deps_reboot_notice=0
 python_gui_deps_missing=0
 # Installed privileged files are verified byte for byte with cmp. It belongs
 # to diffutils, which a minimal Arch, CachyOS or openSUSE install need not
-# carry, and its absence read as "does not match this build".
+# carry, and its absence read as "does not match this build". It is installed
+# here like the GUI dependencies below; the installer stops only when that
+# is not possible.
 if [[ "${BC250_SKIP_PRIVILEGED_HELPER:-0}" != "1" ]] && ! command -v cmp >/dev/null 2>&1; then
-  echo "Error: the cmp command (package diffutils) is required to verify the installed files." >&2
-  echo "Install diffutils with your package manager, then run this installer again." >&2
-  exit 2
+  diffutils_command=()
+  if [[ -e /run/ostree-booted ]]; then
+    : # Image-based systems ship diffutils; layering it would need a reboot.
+  elif command -v pacman >/dev/null 2>&1; then
+    diffutils_command=(pacman -S --needed --noconfirm diffutils)
+  elif command -v apt-get >/dev/null 2>&1; then
+    diffutils_command=(apt-get install -y diffutils)
+  elif command -v dnf >/dev/null 2>&1; then
+    diffutils_command=(dnf install -y diffutils)
+  elif command -v zypper >/dev/null 2>&1; then
+    diffutils_command=(zypper --non-interactive install diffutils)
+  elif command -v apk >/dev/null 2>&1; then
+    diffutils_command=(apk add --no-progress diffutils)
+  fi
+  if [[ ${#diffutils_command[@]} -gt 0 && "${BC250_SKIP_DEPENDENCY_INSTALL:-0}" != "1" ]]; then
+    echo "Installing diffutils, needed to verify the installed files..."
+    if [[ "${diffutils_command[0]}" == "pacman" ]]; then
+      prepare_steamos_pacman_install_local
+    fi
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+      "${diffutils_command[@]}" || true
+    elif command -v sudo >/dev/null 2>&1; then
+      sudo "${diffutils_command[@]}" || true
+    fi
+    if is_steamos_install_local; then
+      restore_steamos_install_root 0
+    fi
+  fi
+  if ! command -v cmp >/dev/null 2>&1; then
+    echo "Error: the cmp command (package diffutils) is required to verify the installed files." >&2
+    echo "Install diffutils with your package manager, then run this installer again." >&2
+    exit 2
+  fi
 fi
 if ! command -v python3 >/dev/null 2>&1; then
   echo "Warning: python3 is not installed or is not in PATH." >&2
@@ -391,6 +423,7 @@ install_privileged_pwm_components() {
     "/usr/libexec/bc250-control-center/lib/system_setup_memory.py"
     "/usr/libexec/bc250-control-center/lib/system_setup_acpi.py"
     "/usr/libexec/bc250-control-center/lib/system_setup_telemetry.py"
+    "/usr/libexec/bc250-control-center/lib/system_setup_kernel_args.py"
     "/usr/libexec/bc250-control-center/lib/system_setup_vram.py"
     "/usr/libexec/bc250-control-center/lib/acpi_payload.py"
     "/usr/libexec/bc250-control-center/lib/bc250_contract.py"
@@ -444,7 +477,7 @@ install_privileged_pwm_components() {
     # by the group, causing every hardened helper to reject its own imports.
     "${elevate[@]}" install -d -m0755 /usr/libexec/bc250-control-center /usr/libexec/bc250-control-center/lib
     "${elevate[@]}" install -Dm755 "$system_setup_helper_source" /usr/libexec/bc250-control-center/bc250-system-setup-helper
-    for setup_module in system_setup_common.py system_setup_memory.py system_setup_acpi.py system_setup_telemetry.py system_setup_vram.py acpi_payload.py bc250_contract.py; do
+    for setup_module in system_setup_common.py system_setup_memory.py system_setup_acpi.py system_setup_telemetry.py system_setup_kernel_args.py system_setup_vram.py acpi_payload.py bc250_contract.py; do
       "${elevate[@]}" install -Dm644 "$ROOT_DIR/privileged/lib/$setup_module" "/usr/libexec/bc250-control-center/lib/$setup_module"
     done
     "${elevate[@]}" install -Dm755 "$helper_source" "$SYSTEM_PRIV_HELPER"

@@ -9,10 +9,13 @@ OVERLAY = Path("scripts/system/prepare-steamos-telemetry-oc-overlay.py")
 
 
 def _reviewed_build_script() -> str:
+    # The steps in upstream's order: the Cyan Skillfish metrics patches (which
+    # the 1.20.3 reset fragment precedes) come before the compute-queue step.
     return (
         "#!/bin/bash\n"
         "GFXCLK_SOURCE_SHA=572014e03cff22fb57f21121e8e8722f11d3d99822ee86e60fbfe50ed6e76f30\n"
         "        SCLK_SOURCE_SHA=fdb9c3fff8a9ff813cdc37907dace041f89f6db15158c56a4bd8f238352b6e42\n"
+        'step "apply Cyan Skillfish GPU metrics patches"\n'
         'step "apply GFX1013 compute-queue lifecycle patches"\n'
     )
 
@@ -42,6 +45,10 @@ def test_overlay_stages_once_and_keeps_the_kernel_control_limit_untouched(tmp_pa
     assert staged.index(namespace["OVERLAY_MARKER"]) < staged.index(
         'step "apply GFX1013 compute-queue lifecycle patches"'
     )
+    # A rerun after a failed build finds cyan_skillfish_ppt.c already
+    # overlaid; the reset restores it before the metrics patches re-apply.
+    assert staged.count(namespace["RESET_MARKER"]) == 1
+    assert staged.index(namespace["RESET_MARKER"]) < staged.index(namespace["RESET_ANCHOR"])
     assert namespace["apply_overlay"](root) is False
     parsed = subprocess.run(
         ["bash", "-n", str(build)], capture_output=True, text=True, check=False
@@ -69,9 +76,12 @@ def test_overlay_upgrades_the_attested_high_only_r181_fragment(tmp_path):
 
     assert namespace["apply_overlay"](root) is True
     upgraded = build.read_text(encoding="utf-8")
-    assert namespace["LEGACY_OVERLAY_RESULT_SHA"] not in upgraded
-    assert namespace["OVERLAY_RESULT_SHA"] in upgraded
-    assert "BC250_TELEMETRY_GFXCLK_MIN" in upgraded
+    # The overlay itself is replaced. The reset fragment still names the
+    # legacy result on purpose: it recognises a file an older run overlaid.
+    overlay = upgraded[upgraded.index(namespace["OVERLAY_MARKER"]):upgraded.index(namespace["ANCHOR"])]
+    assert namespace["LEGACY_OVERLAY_RESULT_SHA"] not in overlay
+    assert namespace["OVERLAY_RESULT_SHA"] in overlay
+    assert "BC250_TELEMETRY_GFXCLK_MIN" in overlay
 
 
 def test_overlay_rejects_an_unreviewed_build_script(tmp_path):

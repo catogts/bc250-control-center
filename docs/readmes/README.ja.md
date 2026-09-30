@@ -49,6 +49,19 @@ Debian と Ubuntu では `dpkg -i` ではなく `apt install` を使ってくだ
 
 このページに戻る必要はありません。新しいバージョンが出るとダッシュボードが知らせ、変更内容を表示し、SHA-256 を確認したうえでシステムのパッケージマネージャーでインストールします。
 
+SteamOS では、アップデートが読み取り専用の保護を解除してインストールし、再び有効にします。SteamOS のアップデートはシステムにインストールされたものをすべて削除し、このアプリも例外ではありません。デスクトップモードのメニューから **Reinstall BC250 Control Center** を開き、依存関係をもう一度準備してください。SteamOS は `deck` のパスワードを求めます。設定したことがない場合は、先に Konsole で `passwd` を実行してください。
+
+**1.19 から移行しますか?** 1.19 の内蔵アップデーターはパッケージをインストールできません。[最新リリース](https://github.com/movacx/bc250-control-center/releases/latest)のパッケージで一度だけ手動で更新すれば、以降はアプリが自動で更新します。Bazzite では 1.19 を一度の操作で置き換えて再起動し、install-local.sh でインストールした場合は先にそのコピーを削除してください:
+
+```bash
+# Bazzite / Fedora Atomic
+sudo rpm-ostree uninstall bc250-control-center --install ./bc250-control-center-*.noarch.rpm
+systemctl reboot
+
+# install-local.sh
+bash scripts/uninstall-local.sh
+```
+
 ## 初回起動
 
 1. **BC250 Control Center** を開きます。

@@ -1,7 +1,5 @@
 from PyQt6.QtCore import QSettings
 
-from frontends.desktop.i18n import SUPPORTED_LANGUAGES, tr
-from frontends.desktop.i18n.locale_catalog import load_locale_catalog
 from frontends.desktop.pages.settings import SettingsPage
 
 
@@ -76,35 +74,3 @@ def test_notifications_are_hidden_and_forced_off(qtbot, tmp_path):
     assert "notifications" not in page.nav_buttons
     assert ui_settings.value("settings/smart_alerts") == "false"
     assert ui_settings.value("settings/desktop_notifications") == "false"
-
-
-def test_recovery_interface_copy_is_translated_in_every_language():
-    sources = (
-        "Recovery readiness",
-        "Inspect snapshots",
-        "Create snapshot",
-        "Recovery snapshots",
-        "Inspect verified snapshots and non-executing restore plans. System restore is not enabled.",
-        "Capture curated BC250 configuration files or inspect verified, non-executing restore plans. System restore is not enabled.",
-        "Entries",
-        "Captured",
-        "Missing",
-        "Unreadable",
-        "Boot-critical entries",
-        "The snapshot is verified. Restore execution remains disabled.",
-        "Recovery snapshot created",
-        "Recovery snapshot failed",
-        "No recovery snapshots are stored.",
-        "Verified",
-        "Invalid",
-        "Manual review required",
-        "Plan available",
-        "Actions",
-        "Storage",
-        "Restore execution is disabled; this view does not change the system.",
-        "Recovery snapshot inventory",
-        "Recovery inventory failed",
-    )
-    for language in SUPPORTED_LANGUAGES - {"en"}:
-        assert all(tr(source, language).strip() for source in sources), language
-        assert all(source in load_locale_catalog(language) for source in sources), language

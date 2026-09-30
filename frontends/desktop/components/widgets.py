@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .. import theme as theme_module
+from ..core.diagnostic_history import record_window_error
 from ..core.error_diagnostics import format_error_for_user
 from ..i18n import localize_widget_tree, tr
 from ..theme import COLORS, application_stylesheet, palette_color, semantic_color_key
@@ -255,6 +256,7 @@ class InfoDialog(QDialog):
         raw_title = str(title)
         raw_eyebrow = str(eyebrow)
         if tone == "red":
+            record_window_error(message, context=f"{raw_eyebrow} {raw_title}", title=raw_title)
             message = format_error_for_user(
                 message,
                 context=f"{raw_eyebrow} {raw_title}",

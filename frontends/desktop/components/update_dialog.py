@@ -44,6 +44,7 @@ from bc250cc.infrastructure.self_update import (
     ReleaseInfo,
     UpdateError,
     UpdatePlan,
+    discard_update,
     download_asset,
     fetch_latest_release,
     plan_update,
@@ -57,6 +58,7 @@ from .async_tools import BackgroundExecutor
 from .busy_spinner import BusySpinner
 from .buttons import WrappingButton as QPushButton
 from .dialogs import center_dialog, enable_adaptive_dialog
+from .toast import show_toast
 from .widgets import icon
 
 #: Where each stage's share of the bar starts and ends.
@@ -100,6 +102,10 @@ INSTALL_PHASES = {
         (": ok", 0.1), ("installing", 0.4), ("helpers", 0.6), ("desktop entry", 0.85),
     ),
 }
+
+
+# SteamOS installs with pacman inside a read-only switch; same phases.
+INSTALL_PHASES["pacman-steamos"] = INSTALL_PHASES["pacman"]
 
 
 def install_progress(manager: str, lines, current: float) -> float:
@@ -508,6 +514,7 @@ class UpdateDialog(QDialog):
         section = QLabel(tr("What's new"))
         section.setProperty("updateSection", True)
         layout.addWidget(section)
+        self.notes_section = section
         self.notes = QTextBrowser()
         self.notes.setObjectName("updateNotes")
         self.notes.setOpenExternalLinks(True)
@@ -670,7 +677,7 @@ class UpdateDialog(QDialog):
             self.restart_requested.emit()
             return
         if state == "failed":
-            self._show_terminal()
+            self._retry()
             return
         plan = self._plan
         if plan is None or plan.kind == "manual":
@@ -705,6 +712,23 @@ class UpdateDialog(QDialog):
             self.stages["verify"].set_state("skipped", tr("The AUR helper checks the sources"))
             self._set_share("verify", 1.0)
             self._install(None)
+
+    def _retry(self) -> None:
+        """Run the update again from the start.
+
+        A package that was already verified is reused rather than downloaded
+        again (``download_asset`` checks it once more), so a password that was
+        not typed in time costs a click, not another download.
+        """
+        for stage in self.stages.values():
+            stage.set_state("pending", "")
+        self.rail.set_tone("blue")
+        self._set_share("download", 0.0)
+        self.notice.hide()
+        self._launch = None
+        self._log_offset = 0
+        self._install_share = 0.0
+        self._start_update()
 
     def _sync_status(self) -> None:
         """The status line names the step at work and what it is doing."""
@@ -799,8 +823,26 @@ class UpdateDialog(QDialog):
             self.notice.setText(tr("The installer is asking for your administrator password: type it in the terminal below."))
             self.notice.show()
             self._show_terminal()
+            self._make_room_for_terminal()
         else:
             self.notice.hide()
+
+    def _make_room_for_terminal(self) -> None:
+        """Get out of the way of the password prompt.
+
+        The console opens at the bottom of the window and the centred dialog
+        covered it, so the prompt sat hidden until sudo timed out. The notes
+        are read by now: they fold away and the dialog moves to the top.
+        """
+        if getattr(self, "_room_made", False):
+            return
+        self._room_made = True
+        self.notes_section.hide()
+        self.notes.hide()
+        self.adjustSize()
+        parent = self.parentWidget()
+        if parent is not None:
+            self.move(self.x(), parent.window().frameGeometry().top() + 24)
 
     def _new_log_lines(self, path: str) -> list[str]:
         if not path:
@@ -832,11 +874,18 @@ class UpdateDialog(QDialog):
         self._follow_install_tail()
         if code != 0:
             self._fail("install", tr_format("The installer ended with code {code}. The terminal shows why.", code=code))
+            if not self.isVisible():
+                # Hidden while it ran: the owner would not know otherwise.
+                show_toast(self._window, "The update did not finish.", tone="red")
             return
         self.rail.set_working(False)
         self.rail.set_tone("green")
         self._set_share("install", 1.0)
         self.stages["install"].set_state("done", tr("Installed"))
+        if self._downloaded is not None:
+            # The package manager has its own copy now; keeping ours only
+            # grows the cache with every release.
+            discard_update(self._downloaded)
         self._state = "done"
         self.notice.hide()
         self.eyebrow.setText(tr("The update is installed."))
@@ -849,6 +898,10 @@ class UpdateDialog(QDialog):
             self.primary.setText(tr("Restart BC250 Control Center"))
             self.primary.setEnabled(True)
             self.later_button.setText(tr("Later"))
+        if not self.isVisible():
+            # Hidden while it ran. Reopening the update brings this dialog
+            # back with its restart button.
+            show_toast(self._window, "The update is installed.", self.stages["finish"].detail.text(), tone="green")
 
     def _follow_install_tail(self) -> None:
         if self._launch is not None:
@@ -864,11 +917,31 @@ class UpdateDialog(QDialog):
         self.release_button.show()
         self.later_button.setText(tr("Close"))
         embedded = getattr(self._launch, "terminal", "") == EMBEDDED_TERMINAL_NAME
-        self.primary.setVisible(embedded)
-        self.primary.setText(tr("Show terminal"))
-        self.primary.setEnabled(embedded)
+        self.terminal_button.setVisible(embedded)
+        # A failed download or a password that was not typed in time is worth
+        # another go; a verified package is reused, not fetched again.
+        self.primary.setVisible(True)
+        self.primary.setText(tr("Try again"))
+        self.primary.setEnabled(True)
 
     # ------------------------------------------------------------------ misc
+
+    def resumable(self) -> bool:
+        """Whether reopening should bring this dialog back instead of a new one.
+
+        A finished install waits for its restart here, and an update still
+        downloading or installing in the embedded console reports its end
+        here. A desktop terminal closed halfway never reports, so that case
+        gets a fresh dialog, as before.
+        """
+        state = getattr(self, "_state", "notes")
+        if state == "done":
+            return True
+        if state != "running":
+            return False
+        if self._launch is None:
+            return True
+        return getattr(self._launch, "terminal", "") == EMBEDDED_TERMINAL_NAME
 
     def _show_terminal(self) -> None:
         console = getattr(self._window, "console", None)

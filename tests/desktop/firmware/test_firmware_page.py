@@ -114,7 +114,10 @@ def page(qtbot, monkeypatch, tmp_path):
                               version="P3.00", date="06/13/2023"),
     )
     widget = FirmwarePage(object())
-    widget.store = FirmwareStore(tmp_path / "cache")
+    # MeiMeiDXE ships as a 7z archive. Arch hosts have bsdtar through pacman,
+    # Ubuntu has none by default and the page (rightly) holds MeiMeiDXE back;
+    # these tests are about the page, so the unpacker is simply there.
+    widget.store = FirmwareStore(tmp_path / "cache", seven_zip=lambda: "/usr/bin/bsdtar")
     widget.drives = []
     widget.watcher._list_drives = lambda: list(widget.drives)
     qtbot.addWidget(widget)
@@ -165,7 +168,7 @@ def test_no_card_carries_a_pill_any_more(page):
     "key, vram, cores, logo, after",
     [
         ("p3-chipset-menu", "Yes", "6 of 8", "As shipped", "Clear CMOS"),
-        ("meimeidxe-v3", "Yes", "8 of 8", "16 to choose from", "Nothing to do"),
+        ("meimeidxe-v3", "Yes", "8 of 8", "16 to choose from", "Clear CMOS"),
         ("p5-stock", "No", "6 of 8", "As shipped", "Clear CMOS"),
         ("p3-stock", "No", "6 of 8", "As shipped", "Clear CMOS"),
         ("p2-stock", "No", "6 of 8", "As shipped", "Clear CMOS"),
@@ -213,7 +216,9 @@ def test_the_highlights_line_up_with_the_facts_and_fold_on_a_narrow_card(qtbot, 
     page.resize(540, 900)
     qtbot.waitUntil(lambda: card.width() < firmware_module.FACTS_ONE_ROW_WIDTH)
     assert card._highlight_columns == 1
-    assert card.highlight_rows[1].y() > card.highlight_rows[0].y()
+    # The rows move in the next layout pass, not in the resize itself: run
+    # alone, this used to read them before that pass and fail.
+    qtbot.waitUntil(lambda: card.highlight_rows[1].y() > card.highlight_rows[0].y())
 
 
 def test_a_caution_shows_only_on_the_chosen_card(page):
@@ -339,12 +344,13 @@ def test_the_confirmation_names_the_drive_and_what_is_on_it(qtbot, page):
     assert options["notice"] == firmware_module.AFTER_FLASH_WARNING
 
 
-def test_an_image_that_resets_its_own_settings_needs_no_cmos_notice(qtbot, page):
+def test_meimeidxe_gets_the_cmos_notice_too(qtbot, page):
+    # Its /CLRCFG resets the settings, yet owners still had to clear the CMOS.
     _plug(qtbot, page, KINGSTON)
     page.firmware_cards["meimeidxe-v3"].gamepad_activate()
     _Dialog.answer = QDialog.DialogCode.Rejected
     page.prepare_button.click()
-    assert _Dialog.shown[0][2]["notice"] == ""
+    assert _Dialog.shown[0][2]["notice"] == firmware_module.AFTER_FLASH_WARNING
 
 
 def test_a_confirmed_preparation_runs_every_step_and_says_what_to_do_next(qtbot, page):
@@ -431,7 +437,7 @@ def test_the_page_speaks_the_chosen_language(qtbot, page):
         assert page.usb_cards["sdd"].note.text() == "Esta unidad está protegida contra escritura."
         assert page.step_rows["erase"].title.text() == "Borrar la unidad USB"
         assert page.category_headings["modded"].text() == tr("Modded BIOS", "es").upper()
-        assert page.firmware_cards["meimeidxe-v3"].fact_values["after"].text() == tr("Nothing to do", "es")
+        assert page.firmware_cards["meimeidxe-v3"].fact_values["after"].text() == tr("Clear CMOS", "es")
         assert page.firmware_cards["p5-stock"].summary.text() == tr(
             FAMILIES_BY_KEY["p5-stock"].summary, "es"
         )

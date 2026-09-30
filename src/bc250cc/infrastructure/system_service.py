@@ -37,6 +37,20 @@ OCULTOS = CRITICOS + [
     'evolution-calendar-factory', 'evolution-addressbook-factory', 'goa-daemon'
 ]
 
+def _graphical_authorization() -> bool:
+    """Is a Polkit agent there to show the administrator window?
+
+    The update then asks in a window instead of the terminal, which a person
+    driving the board with a controller could not type into.
+    """
+    from bc250cc.infrastructure.polkit_session import ensure_graphical_polkit_agent
+
+    try:
+        return bool(ensure_graphical_polkit_agent().ready)
+    except Exception:  # noqa: BLE001 - the terminal password still works
+        return False
+
+
 class SistemaService:
     def __init__(self, repo, *, activity_service=None, settings_service=None):
         self.repo = repo
@@ -388,7 +402,7 @@ class SistemaService:
             package = Path(package_path).resolve()
             if package.parent != updates_directory().resolve() or not package.is_file():
                 raise UpdateError('The update package is not in the application updates folder.')
-        command = install_command(plan, package)
+        command = install_command(plan, package, graphical=_graphical_authorization())
         return self.repo._abrir_terminal(command, 'BC250 Control Center update')
 
     def invalidar_estado_herramientas(self):
@@ -420,6 +434,12 @@ class SistemaService:
 
     def gestionar_mitigaciones_bazzite(self, action: str):
         return self.repo.gestionar_mitigaciones_bazzite(action)
+
+    def gestionar_solo_lectura_steamos(self, action: str):
+        return self.repo.gestionar_solo_lectura_steamos(action)
+
+    def gestionar_opciones_kernel(self, options):
+        return self.repo.gestionar_opciones_kernel(options)
 
     def gestionar_acpi(self, action: str):
         return self.repo.gestionar_acpi(action)
@@ -469,15 +489,6 @@ class SistemaService:
     def actualizar_aplicacion_local(self):
         return self.repo.actualizar_aplicacion_local()
 
-    def health_check(self):
-        return self.repo.health_check()
-
-    def repair_installation(self):
-        return self.repo.repair_installation()
-
-    def generate_diagnostic_report(self):
-        return self.repo.generate_diagnostic_report()
-
     def recovery_inventory(self, limit=50):
         return self.repo.recovery_inventory(limit)
 
@@ -511,6 +522,12 @@ class SistemaService:
 
     def controlar_governor(self, accion, confirmar_conflictos=False, desactivar_conflictos=False):
         return self.repo.controlar_governor(accion, confirmar_conflictos, desactivar_conflictos)
+
+    def manage_accessory(self, component, action):
+        return self.repo.manage_accessory(component, action)
+
+    def accessory_configure_argv(self, component):
+        return self.repo.accessory_configure_argv(component)
 
     def status_governor(self):
         return self.repo.status_governor()
@@ -615,8 +632,8 @@ class SistemaService:
     def estado_desbloqueo_nucleos_cpu(self):
         return self.repo.estado_desbloqueo_nucleos_cpu()
 
-    def comando_desbloquear_nucleos_cpu(self):
-        return self.repo.comando_desbloquear_nucleos_cpu()
+    def comando_desbloquear_nucleos_cpu(self, ignore_core_mask=False):
+        return self.repo.comando_desbloquear_nucleos_cpu(ignore_core_mask=ignore_core_mask)
 
     def estado_gddr6_memory_temp(self):
         return self.repo.estado_gddr6_memory_temp()

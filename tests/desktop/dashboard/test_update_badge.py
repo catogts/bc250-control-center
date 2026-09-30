@@ -616,6 +616,11 @@ def test_nothing_is_announced_again_when_there_is_no_update(qtbot, shown_page):
 
 def test_a_badge_scrolled_out_of_the_viewport_takes_the_bubble_with_it(qtbot, shown_page):
     """A tail pointing above the viewport labels whatever is under it now."""
+    # Short enough that the badge is below the fold at the top of the page
+    # with any font: with DejaVu the page is shorter and, at 800 px, the badge
+    # never left the viewport.
+    shown_page.window().resize(1200, 520)
+    qtbot.wait(50)
     shown_page._apply_update_status(_lookup("1.20.0", True, _package_source()))
     _reveal_badge(qtbot, shown_page)
     qtbot.waitUntil(lambda: not shown_page.update_callout.isHidden(), timeout=4000)

@@ -136,6 +136,13 @@ def test_bazzite_is_a_supported_quick_access_runtime(helper_module, monkeypatch)
     monkeypatch.setattr(helper_module, "is_steamos", lambda: False)
     monkeypatch.setattr(helper_module, "is_bazzite", lambda: True)
     monkeypatch.setattr(helper_module, "bc250_present", lambda: True)
+    original_path = helper_module.pathlib.Path
+    monkeypatch.setattr(
+        helper_module.pathlib,
+        "Path",
+        lambda value: type("RuntimePath", (), {"is_dir": lambda self: True, "is_file": lambda self: True})()
+        if value in {"/run/systemd/system", "/usr/bin/systemctl"} else original_path(value),
+    )
 
     assert helper_module.require_runtime() == ""
 
@@ -162,6 +169,13 @@ def test_cachyos_is_a_supported_quick_access_runtime(helper_module, monkeypatch)
     monkeypatch.setattr(helper_module, "is_bazzite", lambda: False)
     monkeypatch.setattr(helper_module, "is_cachyos", lambda: True)
     monkeypatch.setattr(helper_module, "bc250_present", lambda: True)
+    original_path = helper_module.pathlib.Path
+    monkeypatch.setattr(
+        helper_module.pathlib,
+        "Path",
+        lambda value: type("RuntimePath", (), {"is_dir": lambda self: True, "is_file": lambda self: True})()
+        if value in {"/run/systemd/system", "/usr/bin/systemctl"} else original_path(value),
+    )
 
     assert helper_module.require_runtime() == ""
 

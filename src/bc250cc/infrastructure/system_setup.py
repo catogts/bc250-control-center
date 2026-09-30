@@ -9,11 +9,13 @@ from pathlib import Path
 
 HELPER = Path("/usr/libexec/bc250-control-center/bc250-system-setup-helper")
 POLICIES = {"preserve", "restore", "swap-16", "swap-32", "zram", "zswap-16", "zswap-32"}
+#: The only kernel boot options the helper manages.
+KERNEL_OPTIONS = ("mitigations=off", "nosmt")
 
 
 def inventory() -> dict:
     if not HELPER.is_file():
-        return {"helper_available": False, "memory": {}, "acpi": {}, "telemetry": {}, "vram": {},
+        return {"helper_available": False, "memory": {}, "acpi": {}, "telemetry": {}, "kernel_options": {}, "vram": {},
                 "reason": "Install or update Control Center's system setup helper first"}
     try:
         info = HELPER.stat()
@@ -26,16 +28,21 @@ def inventory() -> dict:
             raise ValueError("Unsupported system setup protocol")
         return {**data, "helper_available": True}
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        return {"helper_available": False, "memory": {}, "acpi": {}, "telemetry": {}, "vram": {}, "reason": str(exc)}
+        return {"helper_available": False, "memory": {}, "acpi": {}, "telemetry": {}, "kernel_options": {}, "vram": {}, "reason": str(exc)}
 
 
 def command(action: str, policy: str = "preserve", ttm_gib: int = 0, uma_size_mb: int = 0,
-            takeover_zram: bool = False, target_mount: str = "") -> str:
+            takeover_zram: bool = False, target_mount: str = "",
+            kernel_options: tuple[str, ...] = ()) -> str:
     if action not in {
         "memory-apply", "acpi-install", "acpi-uninstall", "acpi-check",
         "telemetry-fix", "telemetry-restore", "vram-read", "vram-apply",
+        "kernel-options-set",
     }:
         raise ValueError("Unsupported system setup action")
+    kernel_options = tuple(kernel_options or ())
+    if any(option not in KERNEL_OPTIONS for option in kernel_options):
+        raise ValueError("Invalid kernel option request")
     if policy not in POLICIES or type(ttm_gib) is not int or ttm_gib not in {-1, 0, 8, 10, 12}:
         raise ValueError("Invalid memory setup request")
     if action == "vram-apply" and (type(uma_size_mb) is not int or not (256 <= uma_size_mb < 16384)):
@@ -51,6 +58,9 @@ def command(action: str, policy: str = "preserve", ttm_gib: int = 0, uma_size_mb
             args += f" --target-mount {shlex.quote(target_mount)}"
     elif action == "vram-apply":
         args = f" --uma-size {uma_size_mb}"
+    elif action == "kernel-options-set":
+        wanted = ",".join(option for option in KERNEL_OPTIONS if option in kernel_options)
+        args = f" --kernel-options {shlex.quote(wanted)}"
     else:
         args = ""
     return ("set -euo pipefail\n"

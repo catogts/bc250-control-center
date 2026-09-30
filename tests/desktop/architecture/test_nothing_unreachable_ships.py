@@ -41,7 +41,6 @@ QT_OVERRIDES = frozenset({
 # one is a decision waiting to be made — wire it up or delete it — not an
 # accident, so they are listed by name rather than tolerated by pattern.
 UNWIRED_FEATURES = frozenset({
-    "SettingsPage._build_health_page",
     "SettingsPage._build_notifications_page",
     "SettingsPage._import_profile_bundle",
     "SettingsPage._export_profile_bundle",

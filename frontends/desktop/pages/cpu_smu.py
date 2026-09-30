@@ -57,6 +57,7 @@ from ..core.cpu_refresh_presenter import (
     present_cpu_telemetry,
     present_cpu_tuning,
 )
+from ..core.diagnostic_history import record_diagnosis
 from ..core.error_diagnostics import diagnose_error
 from ..core.external_links import open_external_url
 from ..core.state import collect_named_sources, state_cache_for
@@ -962,7 +963,7 @@ class CpuSmuPage(QWidget):
         self.core_unlock_button = QPushButton("Unlock cores and restart")
         self.core_unlock_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.core_unlock_button.setProperty("dangerAction", True)
-        self.core_unlock_button.clicked.connect(self._request_core_unlock)
+        self.core_unlock_button.clicked.connect(lambda: self._request_core_unlock())
         action_row.addWidget(self.core_unlock_button)
         card.body.addLayout(action_row)
         self._retranslate_firmware_persistence_button()
@@ -1763,7 +1764,8 @@ class CpuSmuPage(QWidget):
             "Could not build service command",
         )
 
-    def _request_core_unlock(self) -> None:
+    def _request_core_unlock(self, ignore_core_mask: bool = False) -> None:
+        """``ignore_core_mask`` is the owner's box for upstream's ``-f``."""
         if (
             getattr(self, "_command_build_pending", False)
             or (
@@ -1793,18 +1795,31 @@ class CpuSmuPage(QWidget):
                 tone="orange",
             )
             return
-        dialog = ConfirmDialog(
-            "Unlock CPU cores and restart",
+        message = tr(
             "CPU core unlocking is experimental. Continue with caution and save your work before "
             "proceeding, because a restart is required to apply the changes. For compatibility, "
-            "the selected GPU frequency governor will be stopped and disabled before that restart.",
-            summary=(
-                ("Restart", "Required immediately"),
-                ("CPU after restart", "Expected: 8 cores / 16 threads"),
-                ("GPU governor", "Disabled for the next startup"),
-                ("GPU clock sensors", "Cyan fix-freq remains ready if it was prepared beforehand"),
-                ("After restart", "Enable the GPU governor; run Prepare everything only if Cyan was never prepared"),
-            ),
+            "the selected GPU frequency governor will be stopped and disabled before that restart."
+        )
+        summary = [
+            ("Restart", "Required immediately"),
+            ("CPU after restart", "Expected: 8 cores / 16 threads"),
+            ("GPU governor", "Disabled for the next startup"),
+            ("GPU clock sensors", "Cyan fix-freq remains ready if it was prepared beforehand"),
+            ("After restart", "Enable the GPU governor; run Prepare everything only if Cyan was never prepared"),
+        ]
+        if ignore_core_mask:
+            # Said in the one confirmation there is, not in a second window.
+            message += "\n\n" + tr(
+                "The core mask check is skipped (-f). If this board's mask is not 0x77, the "
+                "factory probably disabled cores that were defective, and they are enabled "
+                "anyway. Stress test for a few hours and check dmesg for MCE errors before "
+                "relying on them."
+            )
+            summary.insert(1, ("Core mask check", "Skipped (-f)"))
+        dialog = ConfirmDialog(
+            "Unlock CPU cores and restart",
+            message,
+            summary=tuple(summary),
             confirm_text="Restart",
             tone="red",
             parent=self,
@@ -1812,7 +1827,7 @@ class CpuSmuPage(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self._build_and_start_process(
-            self.controller.comando_desbloquear_nucleos_cpu,
+            lambda: self.controller.comando_desbloquear_nucleos_cpu(ignore_core_mask=ignore_core_mask),
             "Unlock CPU cores and restart",
             "Could not start CPU core unlock",
         )
@@ -1950,10 +1965,9 @@ class CpuSmuPage(QWidget):
             self._append_console(f"[{stamp}] " + tr("Completed"))
             self._last_operation_summary = tr("Completed")
         else:
-            diagnosis = diagnose_error(
-                describe_failure(exit_code, "", self._last_stderr),
-                context="CPU SMU",
-            )
+            failure = describe_failure(exit_code, "", self._last_stderr)
+            diagnosis = diagnose_error(failure, context="CPU SMU")
+            record_diagnosis(diagnosis, source="terminal", title="CPU / SMU", detail=failure)
             # Composed from already-catalogued phrases so a diagnosis never
             # introduces a new translation key per message shape.
             self._append_console(f"[{stamp}] " + tr(diagnosis.summary))

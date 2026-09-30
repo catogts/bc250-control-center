@@ -42,7 +42,7 @@ def test_sections_keep_their_old_keys_and_gain_hardware_and_console(qtbot, tmp_p
     page, _settings = _page(qtbot, tmp_path)
     assert page.section_order == [
         "general", "appearance", "hardware", "console",
-        "telemetry", "security", "reports", "about",
+        "telemetry", "security", "reports", "diagnostics", "about",
     ]
 
 
@@ -78,3 +78,10 @@ def test_settings_switches_are_real_switches_with_a_knob(qtbot, tmp_path):
 
     assert switch.isChecked()
     assert settings.value("settings/reopen_last_module") == "true"
+
+
+def test_update_application_opens_the_updater_instead_of_a_missing_script(qtbot, tmp_path):
+    """Packages never ship update-local.sh, so this button used to fail every time."""
+    page, _settings = _page(qtbot, tmp_path)
+    with qtbot.waitSignal(page.update_requested, timeout=1000):
+        page._update_application()

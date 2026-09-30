@@ -61,6 +61,8 @@ class PreparationContext:
     steamos_fix_directory: str
     gddr6_repository: str = ''
     gddr6_destination: Path | None = None
+    #: Components the inventory already found working before this run.
+    already_present: frozenset[str] = frozenset()
 
 
 def secure_cpu_checkout_command(destination: Path) -> str:
@@ -329,6 +331,26 @@ def _steamos_user_space_commands(context: PreparationContext) -> list[str]:
     return commands
 
 
+def _presence_notes(selected: frozenset[str], present: frozenset[str]) -> list[str]:
+    """Say up front what is already there and what this run will add.
+
+    A board set up by hand or by another toolkit looked, from the output
+    alone, as if everything was being installed again. Every step still runs,
+    because each one checks its own state and leaves a working tool in place;
+    this only tells the person which ones will.
+    """
+    kept = sorted(key for key in selected if key in present)
+    added = sorted(key for key in selected if key not in present)
+    notes = []
+    if kept:
+        notes.append(script_presentation.note(
+            'Already present (checked and kept): ' + ', '.join(kept)
+        ))
+    if added:
+        notes.append(script_presentation.note('To prepare now: ' + ', '.join(added)))
+    return notes
+
+
 def build_preparation_command(context: PreparationContext) -> str:
     repo = context.repository
     os_repo = context.os_repository
@@ -356,6 +378,7 @@ def build_preparation_command(context: PreparationContext) -> str:
                 for item in preparation_plan(selected, os_repo.info.family)
             )
         ),
+        *_presence_notes(selected, context.already_present),
         script_presentation.progress_note(
             'Downloads and builds can take several minutes; this is normal.'
         ),

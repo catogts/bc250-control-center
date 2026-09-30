@@ -184,24 +184,6 @@ def test_current_reports_copy_is_translated_in_every_language():
         assert all(tr(source, language) != source for source in sources), language
 
 
-def test_recovery_export_copy_is_translated_in_every_language():
-    sources = (
-        "Export latest",
-        "Recovery export unavailable",
-        "No verified recovery snapshot is available to export.",
-        "Create and verify a snapshot before exporting evidence.",
-        "Export portable recovery evidence",
-        "BC250 recovery evidence (*.zip)",
-        "Recovery evidence exported",
-        "Verified recovery evidence was saved to {path}. SHA-256: {sha256}",
-        "The archive contains no automatic restore executable and did not change the system.",
-        "Recovery export failed",
-        "No existing file or system setting was changed.",
-    )
-    for language in SUPPORTED_LANGUAGES - {"en"}:
-        assert all(tr(source, language) != source for source in sources), language
-
-
 def test_repository_portability_facade_uses_transactional_user_files(
     tmp_path, monkeypatch
 ):

@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import (
@@ -41,12 +42,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from bc250cc.infrastructure import SystemdUserService
+from bc250cc.infrastructure import SystemdUserService, diagnostic_journal
 from bc250cc.infrastructure.gddr6_memory_temp_repository import (
     board_bios_version,
     gddr6_firmware_supported,
 )
 from bc250cc.infrastructure.governor_conflicts import normalize_governor_preference
+from bc250cc.infrastructure.system_snapshot import system_snapshot
 from bc250cc.infrastructure.vrm_telemetry_reader import sondear_telemetria_vrm
 from bc250cc.platform.init.services import detect_init_manager
 from bc250cc.shared.failure_text import describe_failure
@@ -64,6 +66,7 @@ from ..components.responsive import (
 from ..components.toast import show_toast
 from ..components.toggle_switch import ToggleSwitch
 from ..components.widgets import IconBadge, InfoDialog, PillLabel, apply_shadow, icon
+from ..core.diagnostic_history import current_wording, diagnostic_report
 from ..core.external_links import open_external_url
 from ..core.preferences import application_settings
 from ..core.state import state_cache_for
@@ -666,6 +669,7 @@ class SettingsPage(QWidget):
     gddr6_manual_changed = pyqtSignal(bool)
     vrm_manual_changed = pyqtSignal(bool)
     tour_requested = pyqtSignal()
+    update_requested = pyqtSignal()
 
     def __init__(self, controller, *, settings_service, activity_service, app_settings: QSettings | None = None, parent: QWidget | None = None):
         super().__init__(parent)
@@ -688,7 +692,6 @@ class SettingsPage(QWidget):
         self._daemon_config_loaded = False
         self._history_busy = False
         self._history_loaded_at = 0.0
-        self._health_busy = False
         self._applied_density: str | None = None
         self._state_cache = state_cache_for(controller)
         settings_file = Path(self.app_settings.fileName()).expanduser().resolve()
@@ -754,6 +757,7 @@ class SettingsPage(QWidget):
             # mnemonic, and "History & reports" rendered as "History _reports".
             ("security", "Privacy and safety", "shield_green"),
             ("reports", "History and reports", "history_blue"),
+            ("diagnostics", "Diagnostics", "processes_blue"),
             ("about", "About", "info_blue"),
         ]
         self.section_order = [key for key, _text, _icon in sections]
@@ -965,6 +969,7 @@ class SettingsPage(QWidget):
             "telemetry": self._build_telemetry_page,
             "security": self._build_security_page,
             "reports": self._build_reports_page,
+            "diagnostics": self._build_diagnostics_page,
             "about": self._build_about_page,
         }
         self._built_sections: set[str] = set()
@@ -1588,81 +1593,81 @@ class SettingsPage(QWidget):
         layout.addWidget(self.history_table, 1)
         return page
 
-    def _build_health_page(self) -> QWidget:
+    def _build_diagnostics_page(self) -> QWidget:
         page, layout = self._build_page_frame(
-            "BC250 System Health",
-            "Validate community tools, privileged helpers, services, configuration files, and distribution-specific integration.",
+            "Diagnostics",
+            "This system at a glance and every error Control Center explained, ready to paste into a problem report.",
         )
-        summary = QFrame()
-        summary.setProperty("banner", True)
-        summary_layout = QHBoxLayout(summary)
-        summary_layout.setContentsMargins(14, 12, 14, 12)
-        summary_layout.setSpacing(10)
-        summary_layout.addWidget(IconBadge("shield_green", COLORS["green_soft"], 38, radius=11))
-        summary_copy = QVBoxLayout()
-        summary_copy.setSpacing(2)
-        self.health_summary_title = QLabel(tr("Not checked yet"))
-        self.health_summary_title.setProperty("bannerTitle", True)
-        self.health_summary_detail = QLabel(tr("Run the health check to inspect this BC250 installation."))
-        self.health_summary_detail.setProperty("bannerText", True)
-        self.health_summary_detail.setWordWrap(True)
-        summary_copy.addWidget(self.health_summary_title)
-        summary_copy.addWidget(self.health_summary_detail)
-        summary_layout.addLayout(summary_copy, 1)
-        layout.addWidget(summary)
-
         actions = ActionGrid(columns=3)
-        self.health_check_button = self._button("Run health check", self._run_health_check, primary=True)
-        self.health_repair_button = self._button("Repair installation", self._repair_health)
-        self.health_report_button = self._button("Generate diagnostic report", self._generate_diagnostic_report)
-        actions.addWidget(self.health_check_button)
-        actions.addWidget(self.health_repair_button)
-        actions.addWidget(self.health_report_button)
+        self.diagnostics_copy_button = self._button(
+            "Copy for a problem report", self._copy_diagnostic_report, primary=True
+        )
+        self.diagnostics_refresh_button = self._button("Refresh", self._refresh_diagnostics)
+        self.diagnostics_clear_button = self._button("Clear history", self._clear_diagnostic_history)
+        for button in (self.diagnostics_copy_button, self.diagnostics_refresh_button, self.diagnostics_clear_button):
+            actions.addWidget(button)
         self._action_grids.append(actions)
         layout.addWidget(actions)
 
-        recovery_group = SettingsGroup("Recovery readiness")
-        recovery_actions = ActionGrid(columns=3)
-        self.recovery_create_button = self._button(
-            "Create snapshot", self._create_recovery_snapshot
-        )
-        self.recovery_inventory_button = self._button(
-            "Inspect snapshots", self._inspect_recovery_snapshots
-        )
-        self.recovery_export_button = self._button(
-            "Export latest", self._export_latest_recovery_snapshot
-        )
-        recovery_actions.addWidget(self.recovery_create_button)
-        recovery_actions.addWidget(self.recovery_inventory_button)
-        recovery_actions.addWidget(self.recovery_export_button)
-        recovery_group.add_row(
-            SettingRow(
-                "Recovery snapshots",
-                "Capture curated BC250 configuration files or inspect verified, non-executing restore plans. System restore is not enabled.",
-                recovery_actions,
-            )
-        )
-        layout.addWidget(recovery_group)
-        self._action_grids.append(recovery_actions)
+        system_title = QLabel(tr("System"))
+        system_title.setProperty("groupTitle", True)
+        layout.addWidget(system_title)
+        # A sheet, not a list: every fact in its own cell, so a screenshot of
+        # it answers what a support thread asks first.
+        self.system_table = self._sheet(("Item", "Value"))
+        self.system_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.system_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.system_table.setWordWrap(True)
+        layout.addWidget(self.system_table)
 
-        self.health_table = QTableWidget(0, 4)
-        self.health_table.setProperty("historyTable", True)
-        self.health_table.setHorizontalHeaderLabels([
-            tr("State"), tr("Component"), tr("Details"), tr("Repair guidance")
-        ])
-        self.health_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.health_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.health_table.setAlternatingRowColors(True)
-        header = self.health_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        history_header = QHBoxLayout()
+        history_title = QLabel(tr("Diagnostic history"))
+        history_title.setProperty("groupTitle", True)
+        history_header.addWidget(history_title)
+        self.diagnostics_count = PillLabel("0 entries", "blue")
+        history_header.addWidget(self.diagnostics_count)
+        history_header.addStretch(1)
+        layout.addLayout(history_header)
+
+        self.diagnostics_table = self._sheet(("Date and time", "Code", "Where", "What happened", "Likely cause"))
+        header = self.diagnostics_table.horizontalHeader()
+        for column in (0, 1, 2):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.health_table.verticalHeader().setVisible(False)
-        self.health_table.setMinimumHeight(420)
-        layout.addWidget(self.health_table, 1)
-        QTimer.singleShot(0, self._run_health_check)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.diagnostics_table.itemSelectionChanged.connect(self._show_diagnostic_detail)
+        layout.addWidget(self.diagnostics_table)
+        self.diagnostics_empty = QLabel(tr(
+            "No errors recorded. Every error Control Center explains, in a window or in the terminal, appears here."
+        ))
+        self.diagnostics_empty.setProperty("emptyState", True)
+        self.diagnostics_empty.setWordWrap(True)
+        layout.addWidget(self.diagnostics_empty)
+
+        self.diagnostics_detail = QPlainTextEdit()
+        self.diagnostics_detail.setProperty("aboutText", True)
+        self.diagnostics_detail.setReadOnly(True)
+        self.diagnostics_detail.setMinimumHeight(150)
+        self.diagnostics_detail.setPlaceholderText(tr("Select a row to see how to fix it and the technical detail."))
+        layout.addWidget(self.diagnostics_detail)
+        self._diagnostic_entries: list = []
+        self._system_rows: list[tuple[str, str]] = []
         return page
+
+    @staticmethod
+    def _sheet(columns: tuple[str, ...]) -> QTableWidget:
+        table = QTableWidget(0, len(columns))
+        table.setProperty("historyTable", True)
+        table.setProperty("sheetTable", True)
+        table.setHorizontalHeaderLabels([tr(column) for column in columns])
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        table.setAlternatingRowColors(True)
+        table.setShowGrid(True)
+        table.verticalHeader().setVisible(False)
+        table.verticalHeader().setDefaultSectionSize(30)
+        return table
 
     def _build_about_page(self) -> QWidget:
         # About
@@ -2323,310 +2328,92 @@ class SettingsPage(QWidget):
     def _show_project_overview(self) -> None:
         TextDetailsDialog("About", project_overview(), self).exec()
 
-    @staticmethod
-    def _localized_health_field(check: dict, field: str, default: str) -> str:
-        key = str(check.get(f"{field}_key") or "")
-        values = check.get(f"{field}_values")
-        values = values if isinstance(values, dict) else {}
-        localized_values = {
-            name: tr(value) if name in {"state", "mode", "boot_sync"} else value
-            for name, value in values.items()
-        }
-        if key:
-            return tr_format(key, **localized_values)
-        return tr(str(check.get(field) or default))
+    def _refresh_diagnostics(self) -> None:
+        """Read the history now and the system facts in the background."""
+        if not hasattr(self, "diagnostics_table"):
+            return
+        self._apply_diagnostic_history(diagnostic_journal.read())
 
-    def _populate_health_row(self, row: int, check: dict, status_title: str) -> None:
-        status = str(check.get("status") or "warning").lower()
-        values = (
-            tr(status_title),
-            tr(str(check.get("title") or "Component")),
-            self._localized_health_field(check, "detail", ""),
-            self._localized_health_field(check, "repair", "No action required."),
-        )
-        for column, value in enumerate(values):
-            item = QTableWidgetItem(value)
-            item.setToolTip(value)
-            item.setData(Qt.ItemDataRole.UserRole, status)
-            self.health_table.setItem(row, column, item)
+        def success(rows: object) -> None:
+            self._apply_system_rows(list(rows) if isinstance(rows, list) else [])
 
-    def _apply_health_result(self, payload: object) -> None:
-        result = payload if isinstance(payload, dict) else {}
-        checks = list(result.get("checks") or [])
-        counts = result.get("counts") if isinstance(result.get("counts"), dict) else {}
-        overall = str(result.get("overall") or "warning").lower()
-        titles = {
-            "healthy": "Healthy",
-            "warning": "Warning",
-            "error": "Error",
-        }
-        self.health_summary_title.setText(tr(titles.get(overall, "Warning")))
-        self.health_summary_detail.setText(tr_format(
-            "{healthy} healthy · {warnings} warnings · {errors} errors · {distribution} · kernel {kernel}",
-            healthy=int(counts.get("healthy") or 0),
-            warnings=int(counts.get("warning") or 0),
-            errors=int(counts.get("error") or 0),
-            distribution=str(result.get("distribution") or "Linux"),
-            kernel=str(result.get("kernel") or "--"),
-        ))
-        self.health_table.setUpdatesEnabled(False)
+        self._start_task(system_snapshot, success, lambda _message: None,
+                         controls=(self.diagnostics_refresh_button,))
+
+    def _apply_system_rows(self, rows: list[tuple[str, str]]) -> None:
+        self._system_rows = rows
+        table = self.system_table
+        table.setRowCount(len(rows))
+        for row, (label, value) in enumerate(rows):
+            name = QTableWidgetItem(tr(label))
+            # Values are data; the few fixed words among them still translate.
+            cell = QTableWidgetItem(tr(value))
+            cell.setToolTip(tr(value))
+            table.setItem(row, 0, name)
+            table.setItem(row, 1, cell)
+        table.resizeRowsToContents()
+        # Every row on screen: the sheet is short and scrolling it hid facts.
+        height = table.horizontalHeader().sizeHint().height() + 2
+        height += sum(table.rowHeight(row) for row in range(table.rowCount()))
+        table.setFixedHeight(height)
+
+    def _apply_diagnostic_history(self, entries: list) -> None:
+        self._diagnostic_entries = entries
+        table = self.diagnostics_table
+        table.setUpdatesEnabled(False)
         try:
-            self.health_table.setRowCount(len(checks))
-            for row, check in enumerate(checks):
-                status = str(check.get("status") or "warning").lower()
-                self._populate_health_row(row, check, titles.get(status, "Warning"))
-            self.health_table.resizeRowsToContents()
-        finally:
-            self.health_table.setUpdatesEnabled(True)
-
-    def _run_health_check(self) -> None:
-        if self._health_busy or not hasattr(self, "health_table"):
-            return
-        self._health_busy = True
-        self.health_check_button.setText(tr("Checking…"))
-
-        def success(result: object) -> None:
-            self._health_busy = False
-            self.health_check_button.setText(tr("Run health check"))
-            self._apply_health_result(result)
-
-        def failure(message: str) -> None:
-            self._health_busy = False
-            self.health_check_button.setText(tr("Run health check"))
-            InfoDialog(
-                "Health check failed", message, icon_name="warning_orange", parent=self,
-                eyebrow="SYSTEM HEALTH", notice="No repair action was executed.", tone="red",
-            ).exec()
-
-        self._start_task(
-            self.controller.health_check,
-            success,
-            failure,
-            controls=(self.health_repair_button, self.health_report_button),
-        )
-
-    def _repair_health(self) -> None:
-        dialog = ConfirmDialog(
-            "Repair BC250 installation",
-            "Only missing or broken application components will be repaired. Existing hardware profiles, "
-            "fan curves, CPU settings, governor settings, and Compute Unit layouts are preserved. "
-            "Kernel patches and hardware state changes are never applied silently.",
-            summary=(
-                ("Repositories", "Clone missing or fast-forward existing official sources"),
-                ("Services and helpers", "Repair only when missing or failed"),
-                ("User configuration", "Preserved"),
-            ),
-            confirm_text="Start repair",
-            tone="orange",
-            parent=self,
-        )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        def success(payload: object) -> None:
-            result = payload if isinstance(payload, dict) else {}
-            self._apply_health_result(result.get("health") or {})
-            show_toast(
-                self,
-                "Repair result",
-                str(result.get("message") or "Repair workflow completed."),
-                tone="green" if result.get("started") else "blue",
-            )
-
-        def failure(message: str) -> None:
-            InfoDialog(
-                "Repair could not start", message, icon_name="warning_orange", parent=self,
-                eyebrow="SYSTEM HEALTH", notice="No automatic hardware repair was attempted.", tone="red",
-            ).exec()
-
-        self._start_task(
-            self.controller.repair_installation,
-            success,
-            failure,
-            controls=(self.health_check_button, self.health_repair_button, self.health_report_button),
-        )
-
-    def _generate_diagnostic_report(self) -> None:
-        def success(payload: object) -> None:
-            result = payload if isinstance(payload, dict) else {}
-            path = str(result.get("path") or "")
-            report = str(result.get("report") or "")
-            TextDetailsDialog(
-                "BC250 diagnostic report",
-                f"{tr('Saved to')}: {path}\n\n{report}",
-                self,
-            ).exec()
-
-        def failure(message: str) -> None:
-            InfoDialog(
-                "Diagnostic report failed", message, icon_name="warning_orange", parent=self,
-                eyebrow="DIAGNOSTICS", notice="No system configuration was changed.", tone="red",
-            ).exec()
-
-        self._start_task(
-            self.controller.generate_diagnostic_report,
-            success,
-            failure,
-            controls=(self.health_check_button, self.health_repair_button, self.health_report_button),
-        )
-
-    def _inspect_recovery_snapshots(self) -> None:
-        def success(payload: object) -> None:
-            result = payload if isinstance(payload, dict) else {}
-            snapshots = result.get("snapshots") if isinstance(result.get("snapshots"), list) else []
-            lines = [f"{tr('Storage')}: {result.get('root') or '--'}", ""]
-            if not snapshots:
-                lines.append(tr("No recovery snapshots are stored."))
-            for item in snapshots:
-                if not isinstance(item, dict):
-                    continue
-                state = tr("Verified") if item.get("verified") else tr("Invalid")
-                access = tr("Manual review required") if item.get("blocked") else tr("Plan available")
-                lines.extend(
-                    (
-                        f"{item.get('label') or item.get('id')}: {state} · {access}",
-                        f"ID: {item.get('id')} · {tr('Actions')}: {item.get('actions', 0)}",
-                        "",
-                    )
+            table.setRowCount(len(entries))
+            for row, entry in enumerate(entries):
+                values = (
+                    datetime.fromtimestamp(entry.at).strftime("%Y-%m-%d %H:%M:%S"),
+                    entry.code,
+                    tr("Terminal") if entry.source == "terminal" else tr("Window"),
+                    tr(current_wording(entry).summary),
+                    tr(current_wording(entry).cause),
                 )
-            lines.append(tr("Restore execution is disabled; this view does not change the system."))
-            TextDetailsDialog(
-                "Recovery snapshot inventory", "\n".join(lines).rstrip(), self
-            ).exec()
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    item.setToolTip(value)
+                    if column == 1:
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                    table.setItem(row, column, item)
+        finally:
+            table.setUpdatesEnabled(True)
+        # As tall as its rows, up to a dozen; past that it scrolls.
+        shown = min(max(len(entries), 3), 12)
+        table.setFixedHeight(table.horizontalHeader().sizeHint().height() + 2 + shown * table.verticalHeader().defaultSectionSize())
+        self.diagnostics_count.setText(tr_format("{count} entries", count=len(entries)))
+        table.setVisible(bool(entries))
+        self.diagnostics_empty.setVisible(not entries)
+        self.diagnostics_detail.setVisible(bool(entries))
+        self.diagnostics_detail.clear()
+        self.diagnostics_clear_button.setEnabled(bool(entries))
 
-        def failure(message: str) -> None:
-            InfoDialog(
-                "Recovery inventory failed",
-                message,
-                icon_name="warning_orange",
-                parent=self,
-                eyebrow="RECOVERY",
-                notice="No system configuration was changed.",
-                tone="red",
-            ).exec()
+    def _show_diagnostic_detail(self) -> None:
+        rows = self.diagnostics_table.selectionModel().selectedRows()
+        if not rows or rows[0].row() >= len(self._diagnostic_entries):
+            self.diagnostics_detail.clear()
+            return
+        entry = self._diagnostic_entries[rows[0].row()]
+        parts = [
+            f"{entry.code} · {tr(entry.title)}",
+            f"{tr('How to fix it')}\n{tr(current_wording(entry).action)}",
+        ]
+        if entry.detail:
+            parts.append(f"{tr('Technical detail')}\n{entry.detail}")
+        self.diagnostics_detail.setPlainText("\n\n".join(parts))
 
-        self._start_task(
-            self.controller.recovery_inventory,
-            success,
-            failure,
-            controls=(self.recovery_inventory_button, self.recovery_export_button),
-        )
+    def _copy_diagnostic_report(self) -> None:
+        report = diagnostic_report(self._system_rows, self._diagnostic_entries)
+        QApplication.clipboard().setText(report)
+        show_toast(self, "Copied", "Paste it into your problem report.", tone="green")
 
-    def _create_recovery_snapshot(self) -> None:
-        def success(payload: object) -> None:
-            result = payload if isinstance(payload, dict) else {}
-            states = result.get("states") if isinstance(result.get("states"), dict) else {}
-            lines = [
-                f"{tr('Storage')}: {result.get('path') or '--'}",
-                f"{tr('Entries')}: {result.get('entries', 0)}",
-                f"{tr('Captured')}: {states.get('captured', 0)}",
-                f"{tr('Missing')}: {states.get('missing', 0)}",
-                f"{tr('Unreadable')}: {states.get('unreadable', 0)}",
-                f"{tr('Boot-critical entries')}: {result.get('boot_critical', 0)}",
-                "",
-                tr("The snapshot is verified. Restore execution remains disabled."),
-            ]
-            TextDetailsDialog(
-                "Recovery snapshot created", "\n".join(lines), self
-            ).exec()
-
-        def failure(message: str) -> None:
-            InfoDialog(
-                "Recovery snapshot failed", message, icon_name="warning_orange",
-                parent=self, eyebrow="RECOVERY",
-                notice="No system configuration was changed.", tone="red",
-            ).exec()
-
-        self._start_task(
-            lambda: self.controller.create_recovery_snapshot(
-                "manual-before-change"
-            ),
-            success,
-            failure,
-            controls=(
-                self.recovery_create_button,
-                self.recovery_inventory_button,
-                self.recovery_export_button,
-            ),
-        )
-
-    def _export_latest_recovery_snapshot(self) -> None:
-        def inventory_ready(payload: object) -> None:
-            result = payload if isinstance(payload, dict) else {}
-            snapshots = result.get("snapshots") if isinstance(result.get("snapshots"), list) else []
-            selected = next(
-                (
-                    item for item in snapshots
-                    if isinstance(item, dict) and item.get("verified") and item.get("id")
-                ),
-                None,
-            )
-            if selected is None:
-                InfoDialog(
-                    "Recovery export unavailable",
-                    tr("No verified recovery snapshot is available to export."),
-                    icon_name="warning_orange",
-                    parent=self,
-                    eyebrow="RECOVERY",
-                    notice="Create and verify a snapshot before exporting evidence.",
-                    tone="orange",
-                ).exec()
-                return
-            snapshot_id = str(selected["id"])
-            destination, _selected_filter = QFileDialog.getSaveFileName(
-                self,
-                tr("Export portable recovery evidence"),
-                str(Path(self._portable_start_directory()) / f"bc250-recovery-{snapshot_id}.zip"),
-                tr("BC250 recovery evidence (*.zip)"),
-            )
-            if not destination:
-                return
-
-            def exported(export_payload: object) -> None:
-                export = export_payload if isinstance(export_payload, dict) else {}
-                InfoDialog(
-                    "Recovery evidence exported",
-                    tr_format(
-                        "Verified recovery evidence was saved to {path}. SHA-256: {sha256}",
-                        path=export.get("path") or destination,
-                        sha256=export.get("sha256") or "--",
-                    ),
-                    icon_name="check_green",
-                    parent=self,
-                    eyebrow="RECOVERY",
-                    notice="The archive contains no automatic restore executable and did not change the system.",
-                    tone="green",
-                ).exec()
-
-            self._start_task(
-                lambda: self.controller.export_recovery_snapshot(snapshot_id, destination),
-                exported,
-                lambda message: InfoDialog(
-                    "Recovery export failed", message, icon_name="warning_orange",
-                    parent=self, eyebrow="RECOVERY",
-                    notice="No existing file or system setting was changed.", tone="red",
-                ).exec(),
-                controls=(
-                    self.recovery_create_button,
-                    self.recovery_inventory_button,
-                    self.recovery_export_button,
-                ),
-            )
-
-        self._start_task(
-            self.controller.recovery_inventory,
-            inventory_ready,
-            lambda message: InfoDialog(
-                "Recovery inventory failed", message, icon_name="warning_orange",
-                parent=self, eyebrow="RECOVERY",
-                notice="No system configuration was changed.", tone="red",
-            ).exec(),
-            controls=(
-                self.recovery_create_button,
-                self.recovery_inventory_button,
-                self.recovery_export_button,
-            ),
-        )
+    def _clear_diagnostic_history(self) -> None:
+        diagnostic_journal.clear()
+        self._apply_diagnostic_history([])
+        show_toast(self, "Diagnostic history cleared", tone="blue")
 
     def _show_repositories(self) -> None:
         RepositoriesDialog(self).exec()
@@ -2646,20 +2433,11 @@ class SettingsPage(QWidget):
         ).exec()
 
     def _update_application(self) -> None:
-        # The updater shows what it will do and has its own button to go
-        # ahead; a question before opening it was the same question twice.
-        try:
-            self.controller.actualizar_aplicacion_local()
-        except Exception as error:
-            InfoDialog(
-                "Application update could not start",
-                str(error),
-                icon_name="warning_orange",
-                parent=self,
-                eyebrow="UPDATE",
-                notice="No application files or settings were changed.",
-                tone="red",
-            ).exec()
+        # The same updater as the dashboard: it picks the route for how this
+        # copy was installed (package, AUR or source). The in-place script
+        # this button used to run ships only with install-local.sh, so every
+        # packaged install answered "the in-place updater is not installed".
+        self.update_requested.emit()
 
     def gamepad_cycle_section(self, delta: int) -> None:
         current = next((key for key, button in self.nav_buttons.items() if button.isChecked()), self.section_order[0])
@@ -2680,6 +2458,8 @@ class SettingsPage(QWidget):
         self.app_settings.setValue("settings/current_section", key)
         if key == "reports":
             self.refresh_history()
+        elif key == "diagnostics":
+            self._refresh_diagnostics()
         elif key == "telemetry":
             self._load_daemon_config()
             self.refresh_daemon_status()
@@ -2809,6 +2589,7 @@ class SettingsDialog(QDialog):
     gddr6_manual_changed = pyqtSignal(bool)
     vrm_manual_changed = pyqtSignal(bool)
     tour_requested = pyqtSignal()
+    update_requested = pyqtSignal()
 
     def __init__(self, controller, *, settings_service, activity_service, app_settings: QSettings | None = None, parent: QWidget | None = None):
         super().__init__(parent)
@@ -2851,6 +2632,7 @@ class SettingsDialog(QDialog):
         self.page.diagnostics_changed.connect(self.diagnostics_changed.emit)
         self.page.sidebar_collapsed_changed.connect(self.sidebar_collapsed_changed.emit)
         self.page.tour_requested.connect(self.tour_requested.emit)
+        self.page.update_requested.connect(self.update_requested.emit)
         self.page.gamepad_navigation_changed.connect(self.gamepad_navigation_changed.emit)
         self.page.gamepad_keypad_changed.connect(self.gamepad_keypad_changed.emit)
         self.page.gamepad_keypad_auto_show_changed.connect(self.gamepad_keypad_auto_show_changed.emit)

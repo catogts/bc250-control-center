@@ -657,6 +657,23 @@ class GPURepository:
             'echo "ERROR: fix-metrics is enabled, and an earlier run of this boot already failed to place its patched gpu_metrics file. A left-over mount on that path blocks the next start. Nothing was changed. Clear the stale mount on the gpu_metrics path, or disable fix-metrics explicitly in GPU compatibility settings."; '
             'exit 62; '
             'fi; '
+            'fi; '
+            # The kernel usage method reads gpu_busy_percent, and a stock
+            # kernel answers that read with "Operation not supported". Cyan
+            # then died with a bare "Io(Os { code: 95 })" that named no file,
+            # after the service had been enabled. Same rule as above: the
+            # method is the owner's choice, so say why and stop, never switch.
+            f'if grep -Eq "^[[:space:]]*method[[:space:]]*=[[:space:]]*\\"kernel\\"" {config}; then '
+            'bc250_cyan_busy_readable=0; '
+            'for bc250_cyan_device in /sys/bus/pci/devices/*; do '
+            '[ -r "$bc250_cyan_device/device" ] || continue; '
+            'grep -qi "^0x13fe$" "$bc250_cyan_device/device" 2>/dev/null || continue; '
+            'cat "$bc250_cyan_device/gpu_busy_percent" >/dev/null 2>&1 && bc250_cyan_busy_readable=1; '
+            'done; '
+            'if [ "$bc250_cyan_busy_readable" -eq 0 ]; then '
+            'echo "ERROR: Cyan reads GPU usage from the kernel (method = kernel), but this kernel cannot provide gpu_busy_percent. Nothing was changed. Choose busy-flag or process as the GPU usage method, or start the BC250 kernel."; '
+            'exit 62; '
+            'fi; '
             'fi;'
         )
 
@@ -717,9 +734,9 @@ class GPURepository:
         self.estado_bc250_cache = None
         self.estado_herramientas_cache = None
         titles = {
-            "activar": "Activar",
-            "desactivar": "Desactivar",
-            "reiniciar": "Reiniciar",
+            "activar": "Enable",
+            "desactivar": "Disable",
+            "reiniciar": "Restart",
         }
         return self._abrir_terminal(comando, f"{titles[accion]} {selected}")
 
@@ -1408,16 +1425,21 @@ class GPURepository:
         init_manager = detect_init_manager()
         if not init_manager.persistence_supported:
             return init_manager.persistence_detail
-        command = (
-            ["rc-service", service_key(servicio), "status"]
-            if init_manager.kind == "openrc"
-            else ["systemctl", "status", servicio, "--no-pager"]
-        )
-        _rc, out, err = self._ejecutar(command, timeout=8)
-        texto = (out or err or "").strip()
-        if not texto:
-            texto = f"{'rc-service' if init_manager.kind == 'openrc' else 'systemctl'} status {servicio} returned no output."
-        return texto
+        # In the application's terminal: the state, then the log of the
+        # current (or last) run only. The whole boot's journal repeated every
+        # earlier start and buried the answer. A stopped service makes
+        # ``systemctl status`` exit 3, which is an answer, not a failure, so
+        # the workflow always ends successfully.
+        quoted = shlex.quote(servicio)
+        if init_manager.kind == "openrc":
+            command = f"rc-service {shlex.quote(service_key(servicio))} status; true"
+        else:
+            command = (
+                f"systemctl status {quoted} --no-pager --full -n 0; echo; "
+                f'journalctl -u {quoted} _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value {quoted})" '
+                "-n 20 --no-pager -o cat; true"
+            )
+        return self._abrir_terminal(command, "GPU governor status")
 
     def abrir_laboratorio_voltaje_gpu(self):
         script = (

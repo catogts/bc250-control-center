@@ -67,7 +67,7 @@ def test_governor_removal_is_scoped_and_preserves_configuration():
     assert "apt-get remove -y oberon-governor; fi" in command
     assert "/etc/oberon-config.yaml" not in command
     assert "bc250-core-unlock" not in command
-    assert title == "Desinstalar oberon-governor"
+    assert title == "Uninstall oberon-governor"
 
 
 def test_governor_removal_rejects_auto_or_unknown_selection():
@@ -120,7 +120,7 @@ def test_governor_switch_disables_the_other_service_before_activation(monkeypatc
     assert command.index("disable --now oberon-governor.service") < command.index("install-cyan")
     assert command.index("install-cyan") < command.index("activate-selected")
     assert "only enabled and active GPU governor" in command
-    assert captured["title"] == "Cambiar a cyan-skillfish-governor-smu"
+    assert captured["title"] == "Switch to cyan-skillfish-governor-smu"
 
 
 @pytest.mark.parametrize(
@@ -532,7 +532,7 @@ def test_governor_activation_recovers_a_core_unlock_service_mask(monkeypatch):
     assert command.index("systemctl unmask") < command.index("systemctl enable --now")
     assert "systemctl reset-failed cyan-skillfish-governor-smu.service" in command
     assert "journalctl -b -u cyan-skillfish-governor-smu.service -n 80" in command
-    assert captured["title"] == "Activar cyan-skillfish-governor-smu"
+    assert captured["title"] == "Enable cyan-skillfish-governor-smu"
 
 
 def test_external_numeric_values_cannot_be_injected_into_privileged_commands():

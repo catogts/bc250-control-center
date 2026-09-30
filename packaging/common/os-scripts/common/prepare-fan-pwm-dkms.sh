@@ -29,6 +29,7 @@ cleanup_nct_source_stage() {
 trap cleanup_nct_source_stage EXIT
 
 bold "${BC250_OS_LABEL:-Linux}: preparing nct6687 PWM driver"
+if bc250_nct6687_already_usable "$KERNEL_RELEASE"; then exit 0; fi
 bc250_kernel_headers_preflight "$KERNEL_RELEASE" || true
 bc250_install_fan_build_prerequisites
 if ! bc250_require_matching_kernel_headers "$KERNEL_RELEASE"; then

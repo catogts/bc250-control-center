@@ -23,7 +23,7 @@ CYAN_SERVICE = "cyan-skillfish-governor-smu.service"
 CYAN_CONFIG = Path("/etc/cyan-skillfish-governor-smu/config.toml")
 CYAN_STATE_DIR = Path("/var/lib/bc250-control-center/cyan-governor")
 CYAN_BC250CC_RUNTIME_REVISION = "bc250cc.2"
-CYAN_REVIEWED_UPSTREAM_COMMIT = "964524d74ba6b69364be39f0e8fa484eb915779e"
+CYAN_REVIEWED_UPSTREAM_COMMIT = "aaed42535622aee1a93df8b22860c409539f67f8"
 CYAN_BC250CC_PATCHER = (
     Path(__file__).resolve().parents[3]
     / "packaging/common/os-scripts/common/patch-cyan-bc250cc-runtime.py"

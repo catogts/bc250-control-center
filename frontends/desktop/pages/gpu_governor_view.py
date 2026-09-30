@@ -58,7 +58,7 @@ from ..components.page_widgets import (
     subpanel,
 )
 from ..components.widgets import PillLabel, icon
-from ..i18n import governor_fix_label, tr, tr_format
+from ..i18n import governor_fix_label, shipped_name, tr, tr_format
 from ..theme import COLORS
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -170,12 +170,27 @@ class GpuProfile:
     def summary(self) -> str:
         return f"{self.minimum} – {self.maximum} MHz"
 
+    def shown_name(self) -> str:
+        return tr(self.name)
+
 
 DEFAULT_PROFILES: tuple[GpuProfile, ...] = (
     GpuProfile("balanced", "Balanced", 500, 1500),
     GpuProfile("gaming", "Gaming", 1000, 1850),
     GpuProfile("benchmark", "Benchmark", 1000, 2000),
 )
+
+
+def gpu_profile_name(key: str, name: object) -> str:
+    """The name to store for ``key``: the shipped source, or the owner's own.
+
+    The legacy editor started from the button text, which was already
+    translated, so a saved "Сбалансированный" stayed Russian for good.
+    """
+    default = next((profile for profile in DEFAULT_PROFILES if profile.key == key), None)
+    if default is None:
+        return str(name or "").strip()
+    return shipped_name(name, default.name)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -517,7 +532,7 @@ class ProfileCardEditable(EditableCardNavigation, QFrame):
 
         head = QHBoxLayout()
         head.setSpacing(6)
-        self._name_label = QLabel(tr(profile.name))
+        self._name_label = QLabel(profile.shown_name())
         self._name_label.setProperty("profileTitle", True)
         self._name_label.setMinimumWidth(0)
         head.addWidget(self._name_label, 1)
@@ -561,7 +576,7 @@ class ProfileCardEditable(EditableCardNavigation, QFrame):
         editor_head.addWidget(reset, 0)
         editor.addLayout(editor_head)
 
-        self._name_edit = QLineEdit(profile.name)
+        self._name_edit = QLineEdit(profile.shown_name())
         self._name_edit.setPlaceholderText(tr("Profile name"))
         self._name_edit.setMaxLength(28)
         editor.addWidget(self._name_edit)
@@ -640,7 +655,7 @@ class ProfileCardEditable(EditableCardNavigation, QFrame):
         return self._profile.is_risky() and not self._unlocked
 
     def begin_edit(self) -> None:
-        self._name_edit.setText(self._profile.name)
+        self._name_edit.setText(self._profile.shown_name())
         self._minimum_spin.setValue(self._profile.minimum)
         self._maximum_spin.setValue(self._profile.maximum)
         self._refresh_hint()
@@ -662,7 +677,7 @@ class ProfileCardEditable(EditableCardNavigation, QFrame):
 
     # -- internal -----------------------------------------------------------
     def _restore_default(self) -> None:
-        self._name_edit.setText(self._default.name)
+        self._name_edit.setText(self._default.shown_name())
         self._minimum_spin.setValue(self._default.minimum)
         self._maximum_spin.setValue(self._default.maximum)
 
@@ -687,7 +702,7 @@ class ProfileCardEditable(EditableCardNavigation, QFrame):
     def _commit(self) -> None:
         minimum = self._minimum_spin.value()
         maximum = max(self._maximum_spin.value(), minimum)
-        name = self._name_edit.text().strip() or self._default.name
+        name = gpu_profile_name(self._default.key, self._name_edit.text())
         self._profile = replace(self._profile, name=name, minimum=minimum, maximum=maximum)
         self.cancel_edit()
         self._sync_view()
@@ -695,7 +710,7 @@ class ProfileCardEditable(EditableCardNavigation, QFrame):
 
     def _sync_view(self) -> None:
         profile = self._profile
-        self._name_label.setText(tr(profile.name))
+        self._name_label.setText(profile.shown_name())
         self._range_label.setText(profile.summary())
         self._voltage_label.setText(f"{profile.voltage} mV")
         blocked = self.is_blocked()
@@ -991,10 +1006,11 @@ class SafePointRail(QWidget):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class OperationsConsole(QFrame):
-    """Console that fills the full height of its column."""
+    """Console that fills the full height of its column.
 
-    cleared = pyqtSignal()
-    copy_requested = pyqtSignal()
+    Kept on purpose, empty and without actions: service output now runs in
+    the application's terminal, and this panel is reserved for later use.
+    """
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -1017,17 +1033,6 @@ class OperationsConsole(QFrame):
         title = QLabel(tr("Operations console"))
         title.setProperty("cardTitle", True)
         head_row.addWidget(title, 1)
-        copy_button = QPushButton(tr("Copy diagnostics"))
-        copy_button.setProperty("linkButton", True)
-        copy_button.setProperty("quiet", True)
-        copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        copy_button.clicked.connect(self.copy_requested)
-        head_row.addWidget(copy_button)
-        clear_button = QPushButton(tr("Clear"))
-        clear_button.setProperty("linkButton", True)
-        clear_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_button.clicked.connect(self._clear)
-        head_row.addWidget(clear_button)
         root.addWidget(head)
 
         self.output = QPlainTextEdit()
@@ -1051,10 +1056,6 @@ class OperationsConsole(QFrame):
 
     def text(self) -> str:
         return self.output.toPlainText()
-
-    def _clear(self) -> None:
-        self.output.clear()
-        self.cleared.emit()
 
 
 class _SafePointRow(QFrame):
@@ -1406,7 +1407,6 @@ class GpuGovernorView(QWidget):
         high_points_toggle_requested(bool)
         voltage_lab_requested()
         config_open_requested()
-        diagnostics_copy_requested()
 
     Inputs::
 
@@ -1424,7 +1424,6 @@ class GpuGovernorView(QWidget):
     high_points_toggle_requested = pyqtSignal(bool)
     voltage_lab_requested = pyqtSignal()
     config_open_requested = pyqtSignal()
-    diagnostics_copy_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -1846,7 +1845,6 @@ class GpuGovernorView(QWidget):
         left_box.addStretch(1)
 
         self.console = OperationsConsole()
-        self.console.copy_requested.connect(self.diagnostics_copy_requested)
 
         body.addWidget(left, 0, 0)
         body.addWidget(self.console, 0, 1)

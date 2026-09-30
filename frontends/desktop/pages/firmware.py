@@ -87,6 +87,7 @@ from ..core.boot_logo_image import (
     readable_patterns,
     render_logo,
 )
+from ..core.diagnostic_history import record_diagnosis
 from ..core.error_diagnostics import diagnose_error
 from ..core.external_links import open_external_url
 from ..core.firmware_session import UsbDriveWatcher, UsbPreparationJob
@@ -137,9 +138,8 @@ RECOVERY_GUIDE = "https://elektricm.github.io/amd-bc250-docs/bios/recovery/"
 #: Said on the page, in the confirmation and in the tour, because it is the one
 #: thing that makes a finished flash look like a dead board.
 AFTER_FLASH_WARNING = (
-    "After an ASRock image the board shows no picture until the CMOS is cleared: "
-    "unplug it and take the coin battery out for a minute. MeiMeiDXE resets its "
-    "settings by itself."
+    "After flashing, the board can show no picture until the CMOS is cleared: "
+    "unplug it and take the coin battery out for a minute."
 )
 #: The slider waits this long after its last move before encoding again.
 LOGO_SETTLE_MS = 120
@@ -526,10 +526,9 @@ class FirmwareCard(_SelectableCard):
             self._set_fact("logo", tr_format("{count} to choose from", count=family.boot_logos))
         else:
             self._set_fact("logo", tr("As shipped"), "muted")
-        if family.tool.clears_settings:
-            self._set_fact("after", tr("Nothing to do"))
-        else:
-            self._set_fact("after", tr("Clear CMOS"), "caution")
+        # Every image, MeiMeiDXE included: on a real board its /CLRCFG flash
+        # still needed the coin battery pulled before it would start.
+        self._set_fact("after", tr("Clear CMOS"), "caution")
         if family.caution:
             self.caution.setText(tr(family.caution))
         if family.variant_title:
@@ -1469,7 +1468,7 @@ class FirmwarePage(QWidget):
             "Everything on it will be erased and replaced by the BIOS update kit. "
             "This cannot be undone.",
             summary=tuple(summary),
-            notice="" if family.tool.clears_settings else AFTER_FLASH_WARNING,
+            notice=AFTER_FLASH_WARNING,
             confirm_text="Erase and prepare",
             eyebrow="ERASE USB DRIVE",
             tone="red",
@@ -1543,8 +1542,7 @@ class FirmwarePage(QWidget):
             "The USB is ready and unmounted. Switch the BC-250 off, unplug "
             "its drives, start it from this USB and type flash."
         )]
-        if not self.selected_family().tool.clears_settings:
-            lines.append(tr(AFTER_FLASH_WARNING))
+        lines.append(tr(AFTER_FLASH_WARNING))
         self._show_result("success", "\n".join(lines))
         self._refresh_cache_status()
         # The dashboard names the installed BIOS. DMI reports the same
@@ -1560,6 +1558,7 @@ class FirmwarePage(QWidget):
         if step in self.step_rows:
             self.step_rows[step].set_state("failed")
         diagnosis = diagnose_error(message, context="firmware usb")
+        record_diagnosis(diagnosis, source="window", title="Firmware (BIOS)", detail=message)
         lines = [tr(diagnosis.summary)]
         if step in {"erase", "format", "copy", "verify"}:
             lines.append(tr(

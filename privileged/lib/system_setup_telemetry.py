@@ -1,4 +1,12 @@
-"""Persistent repair for the BC-250 eight-core AMDGPU metrics layout."""
+"""Persistent repair for the BC-250 eight-core AMDGPU metrics layout.
+
+Only for kernels that still have ``amdgpu.cs_legacy_8core_metrics``. It was
+removed from linux-cachyos-bc250 on 2026-09-17: that kernel reads the 8-core
+table of a patched SMU firmware on its own, and an unpatched one needs the
+firmware patch (MeiMeiDXE v3's "SMU Reporting Patch"), not a boot argument.
+On such a kernel the argument is ignored, so offering it, or waiting for a
+reboot to activate it, would never end.
+"""
 from __future__ import annotations
 
 import re
@@ -17,7 +25,10 @@ LIMINE_END = "# END BC250 8-CORE TELEMETRY"
 _LIMINE_MANAGED_BLOCK = re.compile(
     rf"\n\n{re.escape(LIMINE_BEGIN)}\nKERNEL_CMDLINE\[default\]\+=\"{re.escape(ARGUMENT)}\"\n{re.escape(LIMINE_END)}\n?"
 )
-_ARGUMENT_RE = re.compile(r"(?:^|\s)amdgpu\.cs_legacy_8core_metrics=([^\s\"']+)")
+# Limine's managed block writes the argument right after a quote
+# (KERNEL_CMDLINE[default]+="amdgpu..."), so a quote also starts a word here;
+# matching only after whitespace missed it and offered the repair again.
+_ARGUMENT_RE = re.compile(r"(?:^|[\s\"'])amdgpu\.cs_legacy_8core_metrics=([^\s\"']+)")
 
 
 def _enabled(value: str) -> bool:
@@ -69,18 +80,27 @@ def status(host: Host) -> dict:
         configured = _enabled(_configured_value(host.read(GRUB_DROPIN)))
     elif backend == "rpm-ostree":
         configured = _enabled(_configured_value(host.run("rpm-ostree", "kargs", check=False)))
-    required = bool(host.bc250() and cores == 8 and not active)
+    # The file exists only when the running kernel has the parameter at all.
+    parameter_available = host.path(PARAMETER).exists()
+    required = bool(host.bc250() and cores == 8 and parameter_available and not active)
     return {
         "hardware": host.bc250(),
         "physical_cores": cores,
         "kernel_parameter": host.read(PARAMETER) or "unavailable",
+        "parameter_available": parameter_available,
         "active": active,
         "configured": configured,
         "backend": backend,
         "required": required,
         "available": required and backend != "unsupported",
-        "reboot_required": configured and not active,
-        "status": "active" if active else "pending-reboot" if configured else "repair-required" if required else "not-required",
+        "reboot_required": configured and not active and parameter_available,
+        "status": (
+            "active" if active
+            else "obsolete" if configured and not parameter_available
+            else "pending-reboot" if configured
+            else "repair-required" if required
+            else "not-required"
+        ),
     }
 
 
@@ -113,6 +133,12 @@ def apply(host: Host) -> dict:
         raise SetupError("AMD BC-250 PCI device 1002:13fe was not found")
     if current["physical_cores"] != 8:
         raise SetupError("Eight physical BC-250 CPU cores must be active before enabling this metrics layout")
+    if not current["parameter_available"]:
+        raise SetupError(
+            "This kernel has no amdgpu.cs_legacy_8core_metrics; linux-cachyos-bc250 removed it on "
+            "2026-09-17. Eight-core telemetry needs the SMU firmware patch instead "
+            "(MeiMeiDXE v3: SMU Reporting Patch)."
+        )
     if current["active"]:
         return current
     if current["configured"]:

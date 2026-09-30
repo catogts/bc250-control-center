@@ -33,7 +33,11 @@ def test_core_unlock_helper_launches_only_validated_official_upstream_script():
     # Fedora/Nobara, Arch derivatives, and SteamOS/Bazzite. Package-manager or
     # distro-specific policy belongs to dependency preparation, not the SMU write.
     assert not any(manager in helper for manager in ("apt ", "dnf ", "pacman ", "rpm-ostree"))
-    assert " '-f'" not in helper and '"-f"' not in helper
+    # Upstream's "-f" (skip the 0x77 core-mask check) is passed only for the
+    # owner's explicit --ignore-core-mask, never on the helper's own initiative.
+    assert helper.count('("-f",)') == 1
+    assert '*(("-f",) if ignore_core_mask else ())' in helper
+    assert 'IGNORE_CORE_MASK = "--ignore-core-mask"' in helper
     assert "command = ['/usr/bin/systemctl', 'reboot']" in helper
     assert "['rc-service', key, 'stop']" in helper
 
@@ -952,6 +956,7 @@ def test_cpu_smu_boot_install_rolls_back_files_if_systemctl_enable_fails(tmp_pat
     action = namespace["action_install_boot"]
     monkeypatch.setitem(action.__globals__, "BOOT_CONFIG", boot)
     monkeypatch.setitem(action.__globals__, "SERVICE_PATH", service)
+    monkeypatch.setitem(action.__globals__, "active_init_manager", lambda: "systemd")
 
     calls = []
 
@@ -985,6 +990,7 @@ def test_cpu_smu_boot_config_is_root_readable_for_unprivileged_validation(tmp_pa
     action_install_boot = namespace["action_install_boot"]
     action_install_boot.__globals__["BOOT_CONFIG"] = boot
     action_install_boot.__globals__["SERVICE_PATH"] = service
+    monkeypatch.setitem(action_install_boot.__globals__, "active_init_manager", lambda: "systemd")
 
     def fake_run(argv, **kwargs):
         if argv[:2] == ["systemctl", "is-enabled"]:

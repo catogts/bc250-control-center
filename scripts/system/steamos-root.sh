@@ -8,10 +8,34 @@
 
 BC250_STEAMOS_READONLY_RESTORE_NEEDED="${BC250_STEAMOS_READONLY_RESTORE_NEEDED:-0}"
 
+# SteamOS ships the deck account without a password, and sudo cannot
+# authorize anything until one is set: every prompt simply fails. Say so
+# before the first sudo instead of leaving "a password is required" to explain
+# itself. An account that sudo already trusts without a password passes.
+bc250_steamos_require_password() {
+  local account status
+  [[ "${BC250_STEAMOS_PASSWORD_CHECKED:-0}" == "1" ]] && return 0
+  if sudo -n true 2>/dev/null; then
+    BC250_STEAMOS_PASSWORD_CHECKED=1
+    return 0
+  fi
+  account="$(id -un 2>/dev/null || true)"
+  status="$(passwd -S "$account" 2>/dev/null | awk '{print $2}' || true)"
+  case "$status" in
+    NP|L|LK|NL)
+      printf '[ERROR] The %s account has no password yet, so sudo cannot authorize this change.\n' "$account" >&2
+      printf '[ERROR] Set one first: open Konsole in Desktop Mode, run passwd, then try again.\n' >&2
+      return 77
+      ;;
+  esac
+  BC250_STEAMOS_PASSWORD_CHECKED=1
+}
+
 bc250_steamos_root_command() {
   if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
     "$@"
   elif command -v sudo >/dev/null 2>&1; then
+    bc250_steamos_require_password || return $?
     sudo "$@"
   else
     printf '[ERROR] sudo is required to change SteamOS read-only state.\n' >&2

@@ -447,6 +447,27 @@ class DriversRepository:
             },
         }
 
+    def manage_accessory(self, component: str, action: str) -> object:
+        """Install or remove an optional case accessory in the terminal."""
+        from bc250cc.infrastructure.accessories import accessory_command
+
+        info = detect_os_info(has_rpm_ostree=bool(shutil.which("rpm-ostree")))
+        command = accessory_command(component, action, family=info.family, tool_dir=self._tool_dir())
+        titles = {
+            "thermalright": "Thermalright LCD",
+            "corsair": "Corsair devices (OpenLinkHub)",
+        }
+        return self._abrir_terminal(command, titles.get(component, "Accessory"))
+
+    @staticmethod
+    def accessory_configure_argv(component: str) -> list[str]:
+        """The program that configures ``component``, to start detached."""
+        from bc250cc.infrastructure.accessories import thermalright
+
+        if component != "thermalright":
+            raise ValueError(f"No configuration program for {component or '--'}")
+        return thermalright.configure_argv()
+
     def install_driver_support(self, component: str) -> object:
         info = detect_os_info(has_rpm_ostree=bool(shutil.which("rpm-ostree")))
         init = detect_init_manager()

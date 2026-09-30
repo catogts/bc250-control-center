@@ -228,7 +228,9 @@ class ToastHost(QWidget):
         self._layout.activate()
         size = self._layout.sizeHint()
         width = min(size.width(), max(0, window.width() - 2 * MARGIN))
-        height = size.height()
+        # Wrapped text needs the height for this width: the plain size hint
+        # counted too few lines and a long notice lost its last ones.
+        height = max(size.height(), self._layout.heightForWidth(width))
         self.setGeometry(
             max(MARGIN, window.width() - width - MARGIN),
             max(MARGIN, window.height() - height - MARGIN),

@@ -119,6 +119,35 @@ def test_a_failed_install_says_so_and_keeps_the_bar_where_it_stopped(qtbot, wind
     assert not dialog.release_button.isHidden()
 
 
+def test_a_failed_install_can_be_tried_again(qtbot, window):
+    """A password nobody typed in time (Bazzite, controller on a sofa) costs a click."""
+    dialog = UpdateDialog(window, installed="1.19.3")
+    qtbot.addWidget(dialog)
+    qtbot.waitUntil(lambda: dialog.primary.isEnabled(), timeout=5000)
+    dialog.primary.click()
+    qtbot.waitUntil(lambda: dialog._launch is not None, timeout=5000)
+    window.workflow_watch.finished.emit(window.controller.launch, 1)
+    assert dialog.primary.text() == tr("Try again")
+    assert dialog.primary.isEnabled() and not dialog.primary.isHidden()
+
+    dialog.primary.click()
+    qtbot.waitUntil(lambda: len(window.controller.calls) == 2, timeout=5000)
+    assert dialog.stages["install"].state == "running"
+    assert dialog.stages["download"].state == "done"
+
+
+def test_an_installed_package_leaves_the_cache(qtbot, window, tmp_path):
+    dialog = UpdateDialog(window, installed="1.19.3")
+    qtbot.addWidget(dialog)
+    qtbot.waitUntil(lambda: dialog.primary.isEnabled(), timeout=5000)
+    dialog.primary.click()
+    qtbot.waitUntil(lambda: dialog._launch is not None, timeout=5000)
+    package = tmp_path / ASSET.name
+    assert package.exists()
+    window.workflow_watch.finished.emit(window.controller.launch, 0)
+    assert not package.exists()
+
+
 def test_install_progress_only_moves_forward():
     assert install_progress("pacman", ["checking keys"], 0.0) == pytest.approx(0.15)
     assert install_progress("pacman", ["checking keys"], 0.5) == 0.5
@@ -155,3 +184,88 @@ def test_the_status_line_follows_the_step_at_work(qtbot, window):
     assert not dialog._step_lines[2].property("done")
     dialog.stages["install"].set_state("failed", "exit 1")
     assert dialog.status_line.property("state") == "failed"
+
+
+def _installing(qtbot, window, terminal: str) -> UpdateDialog:
+    window.controller.launch = TerminalLaunchResult(
+        terminal=terminal, title="update", pid=None,
+        status_file=window.controller.launch.status_file, log_file=window.controller.launch.log_file,
+    )
+    dialog = UpdateDialog(window, installed="1.19.3")
+    qtbot.addWidget(dialog)
+    qtbot.waitUntil(lambda: dialog.primary.isEnabled(), timeout=5000)
+    dialog.primary.click()
+    qtbot.waitUntil(lambda: dialog._launch is not None, timeout=5000)
+    return dialog
+
+
+def test_a_hidden_install_is_brought_back_not_offered_again(qtbot, window):
+    """Hide, then the badge: the same dialog, not a second download and install."""
+    dialog = _installing(qtbot, window, module.EMBEDDED_TERMINAL_NAME)
+    assert dialog.resumable()
+    window.workflow_watch.finished.emit(window.controller.launch, 0)
+    assert dialog.resumable() and dialog.primary.text() == tr("Restart BC250 Control Center")
+
+
+def test_a_desktop_terminal_install_gets_a_fresh_dialog(qtbot, window):
+    # Closed halfway, a desktop terminal never reports; a new dialog is the way out.
+    assert not _installing(qtbot, window, "konsole").resumable()
+
+
+def test_a_failed_or_unstarted_update_is_not_resumed(qtbot, window):
+    dialog = _installing(qtbot, window, module.EMBEDDED_TERMINAL_NAME)
+    window.workflow_watch.finished.emit(window.controller.launch, 1)
+    assert not dialog.resumable()
+    fresh = UpdateDialog(window, installed="1.19.3")
+    qtbot.addWidget(fresh)
+    assert not fresh.resumable()
+
+
+def test_the_outcome_of_a_hidden_install_arrives_as_a_toast(qtbot, window, monkeypatch):
+    toasts = []
+    monkeypatch.setattr(module, "show_toast", lambda anchor, title, message="", tone="blue": toasts.append((title, tone)))
+    dialog = _installing(qtbot, window, module.EMBEDDED_TERMINAL_NAME)
+    assert not dialog.isVisible()
+    window.workflow_watch.finished.emit(window.controller.launch, 0)
+    assert toasts == [("The update is installed.", "green")]
+
+
+def test_a_visible_dialog_needs_no_toast(qtbot, window, monkeypatch):
+    toasts = []
+    monkeypatch.setattr(module, "show_toast", lambda *args, **kwargs: toasts.append(args))
+    dialog = _installing(qtbot, window, module.EMBEDDED_TERMINAL_NAME)
+    dialog.show()
+    window.workflow_watch.finished.emit(window.controller.launch, 1)
+    assert toasts == []
+
+
+class _KeptDialog:
+    def __init__(self, resumable: bool):
+        self._resumable = resumable
+        self.shown = 0
+
+    def isVisible(self):  # noqa: N802 - Qt API name
+        return False
+
+    def resumable(self):
+        return self._resumable
+
+    def show(self):
+        self.shown += 1
+
+    def raise_(self):
+        pass
+
+    def activateWindow(self):  # noqa: N802 - Qt API name
+        pass
+
+
+def test_the_window_reopens_a_resumable_update_instead_of_starting_over(monkeypatch):
+    from frontends.desktop.app import ControlCenterWindow
+
+    created = []
+    monkeypatch.setattr(module, "UpdateDialog", lambda *args, **kwargs: created.append(args))
+    kept = _KeptDialog(resumable=True)
+    fake = type("W", (), {"update_dialog": kept})()
+    ControlCenterWindow.open_update_dialog(fake)
+    assert kept.shown == 1 and created == []

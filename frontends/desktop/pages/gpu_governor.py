@@ -118,7 +118,7 @@ from ..core.voltage_keypad_guard import (
     clear_voltage_keypad_state,
     voltage_keypad_edit_active,
 )
-from ..i18n import tr, tr_format
+from ..i18n import shipped_name, tr, tr_format
 from ..theme import COLORS, application_stylesheet
 
 
@@ -153,6 +153,15 @@ def _format_bytes(value) -> str:
 # small enough to live directly in the shared UI settings file rather than a
 # dedicated store. Three fixed slots mirror the three preset buttons.
 _CUSTOM_PROFILE_SLOTS = 3
+#: The shipped name of each slot, the source every language translates.
+_CUSTOM_PROFILE_DEFAULT_NAMES = ("Balanced", "Gaming", "Benchmark")
+
+
+def _custom_profile_name(index: int, name: object) -> str:
+    """A slot's default saved in any language reads back as the source."""
+    if 0 <= index < len(_CUSTOM_PROFILE_DEFAULT_NAMES):
+        return shipped_name(name, _CUSTOM_PROFILE_DEFAULT_NAMES[index])
+    return str(name or "").strip()
 
 
 
@@ -173,7 +182,7 @@ def _load_custom_gpu_profile(settings, index: int) -> dict | None:
     if minimum <= 0 or maximum <= 0 or minimum > maximum:
         return None
     return {
-        "name": name,
+        "name": _custom_profile_name(index, name),
         "min": minimum,
         "max": maximum,
         "frequency": frequency,
@@ -183,7 +192,7 @@ def _load_custom_gpu_profile(settings, index: int) -> dict | None:
 
 def _save_custom_gpu_profile(settings, index: int, profile: dict) -> None:
     prefix = f"gpu/cyan_profile_{index}/"
-    settings.setValue(prefix + "name", profile["name"])
+    settings.setValue(prefix + "name", _custom_profile_name(index, profile["name"]))
     settings.setValue(prefix + "min", int(profile["min"]))
     settings.setValue(prefix + "max", int(profile["max"]))
     settings.setValue(prefix + "frequency", int(profile["frequency"]))
@@ -1757,7 +1766,8 @@ class GpuProfileEditDialog(QDialog):
 
     def result_profile(self) -> dict:
         frequency, voltage = self.point_combo.currentData() or (0, 0)
-        name = self.name_input.text().strip() or tr("Custom")
+        # The source, not its translation: the card translates it when shown.
+        name = self.name_input.text().strip() or "Custom"
         return {
             "name": name,
             "min": self.minimum_field.value(),
@@ -3597,6 +3607,8 @@ class GpuGovernorPage(QWidget):
         memory_takeover_zram: bool = False,
         memory_target_mount: str = "",
         vram_uma_size_mb: int = 0,
+        kernel_options: tuple[str, ...] = (),
+        kernel_option_changed: str = "",
     ) -> None:
         """Execute a dialog or dashboard preparation request through one route."""
         tools = _dict(self.current_state.get("tools"))
@@ -3622,6 +3634,17 @@ class GpuGovernorPage(QWidget):
                 dialog_parent=dialog_parent,
             )
             return
+        if action == "kernel_options_set":
+            self._manage_kernel_options(
+                kernel_options, changed=kernel_option_changed, dialog_parent=dialog_parent
+            )
+            return
+        if action.startswith("steamos_readonly_"):
+            self._manage_steamos_readonly(
+                action.removeprefix("steamos_readonly_"),
+                dialog_parent=dialog_parent,
+            )
+            return
         if action in {"quick_access_install_decky", "quick_access_plugin"}:
             self._prepare_steamos_quick_access(
                 install_decky=action == "quick_access_install_decky",
@@ -3636,6 +3659,9 @@ class GpuGovernorPage(QWidget):
             self._prepare_cachyos_bc250(
                 action.removeprefix("cachyos_bc250_"), dialog_parent=dialog_parent
             )
+            return
+        if action == "fsr4_steam_option_all":
+            self._add_fsr4_steam_option_to_library(dialog_parent=dialog_parent)
             return
         if action.startswith("fsr4_steam_option:"):
             self._add_fsr4_steam_option(
@@ -3867,6 +3893,78 @@ class GpuGovernorPage(QWidget):
             error_parent=dialog_parent,
         )
 
+    def _manage_kernel_options(
+        self, options: tuple[str, ...], *, changed: str, dialog_parent: QWidget | None
+    ) -> None:
+        """Turn one of mitigations=off / nosmt on or off at the next boot."""
+        if changed in options:
+            # Adding either one gives something up; restoring needs no question.
+            mitigations = changed == "mitigations=off"
+            confirmation = ConfirmDialog(
+                tr("Disable CPU security mitigations" if mitigations else "Disable simultaneous multithreading"),
+                tr(
+                    "This disables optional kernel protections against multiple CPU vulnerabilities. It may improve performance in some workloads. The change applies after reboot and can be restored from Control Center."
+                    if mitigations
+                    else "The CPU runs one thread per core: 6 or 8 threads instead of 12 or 16. Some games run smoother, others slower; measure yours. The change applies after reboot and can be restored from Control Center."
+                ),
+                summary=(
+                    (tr("Kernel argument"), changed),
+                    (tr("Reboot"), tr("Required to activate the selected configuration")),
+                ),
+                confirm_text=tr("Disable mitigations" if mitigations else "Disable SMT"),
+                tone="red" if mitigations else "orange",
+                parent=dialog_parent or self,
+            )
+            if confirmation.exec() != QDialog.DialogCode.Accepted:
+                return
+        self._run_backend_action(
+            lambda: self.controller.gestionar_opciones_kernel(options),
+            lambda _result: GpuGovernorPage._record_preparation_result(
+                self,
+                tr("Kernel boot options"),
+                tr("The change was staged. Reboot after the terminal reports success."),
+            ),
+            tr("Could not change the kernel boot options"),
+            controls=(),
+            error_parent=dialog_parent,
+        )
+
+    def _manage_steamos_readonly(
+        self, action: str, *, dialog_parent: QWidget | None
+    ) -> None:
+        action = str(action or "").strip().lower()
+        if action not in {"disable", "enable"}:
+            raise ValueError("Unsupported SteamOS read-only action.")
+        if action == "disable":
+            # Turning the protection back on is always safe and needs no
+            # question; taking it off is the step worth one.
+            confirmation = ConfirmDialog(
+                tr("Disable SteamOS read-only mode"),
+                tr(
+                    "The system files become writable so packages can be installed. The next SteamOS update turns the protection back on and removes anything installed into them. Control Center workflows that need it already switch it off and back on by themselves."
+                ),
+                summary=(
+                    (tr("Platform"), "SteamOS"),
+                    (tr("Command"), "steamos-readonly disable"),
+                ),
+                confirm_text=tr("Disable read-only mode"),
+                tone="orange",
+                parent=dialog_parent or self,
+            )
+            if confirmation.exec() != QDialog.DialogCode.Accepted:
+                return
+        self._run_backend_action(
+            lambda: self.controller.gestionar_solo_lectura_steamos(action),
+            lambda _result: GpuGovernorPage._record_preparation_result(
+                self,
+                tr("SteamOS read-only mode"),
+                tr("The terminal shows the new state."),
+            ),
+            tr("Could not change SteamOS read-only mode"),
+            controls=(),
+            error_parent=dialog_parent,
+        )
+
     def _manage_acpi(self, action: str, dialog_parent: QWidget | None = None) -> None:
         if action == "acpi-status":
             self._run_backend_action(
@@ -4083,6 +4181,45 @@ class GpuGovernorPage(QWidget):
                 "Opened the FSR4 workflow in the terminal.",
             ),
             "Could not manage FSR4",
+            controls=(),
+            error_parent=dialog_parent,
+        )
+
+    def _add_fsr4_steam_option_to_library(self, *, dialog_parent: QWidget | None) -> None:
+        """The same option for every installed Steam game, asked for on Reddit."""
+        from bc250cc.infrastructure.steam_launch_options import installed_steam_games
+
+        games = installed_steam_games()
+        confirmation = ConfirmDialog(
+            "Add the launch option to every Steam game",
+            tr(
+                "Every installed Steam game gets the option that lets Proton load OptiScaler, so "
+                "after this the client only has to copy files into a game. Games without "
+                "OptiScaler run as before. What each game already had stays. Close Steam "
+                "completely first; the previous Steam settings file is kept beside it as a backup."
+            ),
+            summary=(
+                (tr("Games"), str(len(games))),
+                (tr("Option"), 'WINEDLLOVERRIDES="dxgi=n,b"'),
+            ),
+            confirm_text="Add to every game",
+            tone="blue",
+            parent=dialog_parent or self,
+        )
+        if confirmation.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._run_backend_action(
+            lambda: self.controller.gestionar_fsr4_bc250("steam_option_all"),
+            lambda result: GpuGovernorPage._record_preparation_result(
+                self,
+                "FSR4 · OptiScaler Client",
+                tr_format(
+                    "Added to {changed} Steam games; {already} already had it.",
+                    changed=int(_dict(result).get("changed") or 0),
+                    already=int(_dict(result).get("already") or 0),
+                ),
+            ),
+            "Could not change the Steam launch option",
             controls=(),
             error_parent=dialog_parent,
         )
@@ -4681,6 +4818,13 @@ class GpuGovernorPage(QWidget):
             incompatible_governors=tools.get("incompatible_gpu_governors") or (),
         )
         description = tr_format(plan.description, **dict(plan.description_values))
+        # Starting, stopping or restarting the governor asks nothing here: the
+        # terminal asks for the password right after, and a window in front
+        # of it was one more click for the same decision. Starting it over
+        # another governor still asks, because that also stops the other one.
+        if not plan.has_conflicts:
+            self._run_service_plan(plan)
+            return
         dialog = ConfirmDialog(
             tr_format("{action} GPU governor", action=tr(plan.label)),
             description,
@@ -4697,7 +4841,9 @@ class GpuGovernorPage(QWidget):
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
+        self._run_service_plan(plan)
 
+    def _run_service_plan(self, plan) -> None:
         def success(_result: object) -> None:
             self._last_operation_summary = f"Opened service workflow: {plan.label}."
             self.last_operation_line.set_values(
@@ -4715,14 +4861,13 @@ class GpuGovernorPage(QWidget):
 
     def read_service_status(self) -> None:
         def success(result: object) -> None:
-            text = str(result or "No status output")
-            self._last_operation_summary = (
-                "Read systemctl status without changing the governor."
-            )
-            self.last_operation_line.set_values(
-                "Read status", self._last_operation_summary
-            )
-            self._append_console(f"systemctl status\n{text}")
+            if isinstance(result, str):
+                # No service manager to ask (runit, s6...): its own explanation.
+                self._append_console(result)
+                show_toast(self, "Governor status", result, tone="blue")
+                return
+            self._last_operation_summary = "Opened the governor status in the terminal."
+            self.last_operation_line.set_values("Read status", self._last_operation_summary)
 
         self._run_backend_action(
             self.controller.status_governor,
@@ -5771,7 +5916,7 @@ class GpuGovernorPage(QWidget):
                 else ""
             )
             button.setText(
-                f"{override['name']}\n{reference}{override['min']}–{override['max']} MHz"
+                f"{tr(override['name'])}\n{reference}{override['min']}–{override['max']} MHz"
             )
 
     def _edit_profile(self, index: int) -> None:
@@ -5803,6 +5948,7 @@ class GpuGovernorPage(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         profile = dialog.result_profile()
+        profile["name"] = _custom_profile_name(index, profile["name"])
         self._custom_profile_overrides[index] = profile
         _save_custom_gpu_profile(application_settings(), index, profile)
         self._apply_profile_overrides()

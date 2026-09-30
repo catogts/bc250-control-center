@@ -300,7 +300,7 @@ def test_active_curve_keeps_its_target_when_manual_selector_changes(qtbot):
     assert controller.saved == []
 
 
-def test_automatic_curve_presets_and_editor_stay_locked_until_enabled(qtbot):
+def test_the_curve_editor_stays_locked_until_the_automatic_curve_is_on(qtbot):
     page = FansPage(_Controller())
     qtbot.addWidget(page)
     page.current_state = {
@@ -311,7 +311,9 @@ def test_automatic_curve_presets_and_editor_stay_locked_until_enabled(qtbot):
     page._apply_state()
 
     assert page.curve_enabled.isChecked() is False
-    assert all(not button.isEnabled() for button in page.curve_preset_buttons)
+    # Since 1.20.1 the profiles are reachable with the curve off: picking one
+    # is picking the automatic curve (see the next test).
+    assert all(button.isEnabled() for button in page.curve_preset_buttons)
     assert page.curve_editor_toggle.isEnabled() is False
     assert page.add_curve_point_button.isEnabled() is False
     assert page.remove_curve_point_button.isEnabled() is False
@@ -326,7 +328,9 @@ def test_automatic_curve_presets_and_editor_stay_locked_until_enabled(qtbot):
     assert page.remove_curve_point_button.isEnabled() is False
 
 
-def test_disabled_curve_rejects_programmatic_preset_without_mutating_or_persisting(qtbot):
+def test_choosing_a_profile_with_the_curve_off_switches_the_curve_on(qtbot):
+    from frontends.desktop.pages.fans import CURVE_PRESETS
+
     controller = _Controller()
     page = FansPage(controller)
     qtbot.addWidget(page)
@@ -336,14 +340,14 @@ def test_disabled_curve_rejects_programmatic_preset_without_mutating_or_persisti
         "modulos": {"nct6687": True},
     }
     page._apply_state()
-    before = page._curve_points_values()
-    controller.saved.clear()
+    assert page.curve_enabled.isChecked() is False
 
     page._apply_curve_preset("aggressive")
     qtbot.wait(20)
 
-    assert page._curve_points_values() == before
-    assert controller.saved == []
+    assert page.curve_enabled.isChecked() is True
+    assert page._curve_preset == "aggressive"
+    assert page._curve_points_values() == [tuple(point) for point in CURVE_PRESETS["aggressive"]]
 
 
 def test_curve_response_map_matches_the_controller_step_ranges(qtbot):

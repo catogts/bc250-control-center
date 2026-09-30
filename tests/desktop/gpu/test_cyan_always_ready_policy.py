@@ -146,36 +146,6 @@ def test_cyan_always_ready_user_messages_are_translated_in_all_supported_languag
                 assert tr(key, language) != key, (key, language)
 
 
-def test_six_core_cyan_health_is_healthy_when_fix_freq_is_already_enabled(tmp_path, monkeypatch):
-    import bc250cc.infrastructure.health_repository as health_module
-    from bc250cc.infrastructure.governor_conflicts import CYAN_GOVERNOR, GOVERNOR_SPECS
-    from bc250cc.infrastructure.health_repository import HealthRepository
-
-    config = tmp_path / "config.toml"
-    config.write_text(
-        '[gpu-usage]\n'
-        'fix-metrics = true\n'
-        'fix-freq = true\n'
-        'method = "kernel"\n\n'
-        '[frequency-range]\nmin = 500\nmax = 1850\n\n'
-        '[[safe-points]]\nfrequency = 500\nvoltage = 700\n',
-        encoding="utf-8",
-    )
-    monkeypatch.setitem(GOVERNOR_SPECS[CYAN_GOVERNOR], "config_path", str(config))
-    monkeypatch.setattr(
-        health_module,
-        "detect_cyan_frequency_fix_runtime",
-        lambda _repo: {"supports_frequency_fix": True},
-    )
-    monkeypatch.setattr(health_module.os, "cpu_count", lambda: 12)
-
-    result = HealthRepository()._governor_config_health()
-
-    assert result["status"] == "healthy"
-    assert result["data"]["telemetry"]["fix_frequency"] is True
-    assert result["data"]["telemetry"]["method"] == "kernel"
-
-
 def test_inactive_cyan_saves_requested_fix_metrics_for_a_later_boot():
     repo = object.__new__(GPURepository)
     edits = []

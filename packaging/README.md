@@ -16,13 +16,23 @@ modify the host, publish a release, or invoke hardware helpers.
 
 1. Bump `VERSION`, the `version` of `integrations/decky/bc250-quick-access/package.json`
    and add a `<release>` to the AppStream metainfo (the builders refuse a mismatch).
-2. `bash packaging/scripts/build-release.sh`
-3. Commit and push to `main`, then create the GitHub release `v<version>` and
-   attach every file in `dist/<version>/`. The application's update check
-   reads `VERSION` on `main`, so publish the release right after the push.
-4. `bash packaging/arch/aur/publish-aur.sh` prepares the AUR update of
+2. Optionally draft the GitHub release `v<version>` with its notes. Leave it as
+   a draft: the workflow publishes it once the packages are attached.
+3. Commit and push to `main`, then push the tag:
+   `git tag v<version> && git push origin v<version>`.
+   `.github/workflows/release.yml` checks that the tag matches `VERSION`,
+   builds the four packages and `SHA256SUMS.txt` with
+   `packaging/scripts/build-release.sh` in an Arch container, and attaches
+   them to the release (creating it with generated notes when there is no
+   draft). Tags are always `v<version>`.
+4. The application's update notice reads the latest published release, so it
+   appears only once that release carries its packages.
+5. `bash packaging/arch/aur/publish-aur.sh` prepares the AUR update of
    `bc250-control-center-git` (pkgver from the pushed `main`, `.SRCINFO`, commit);
    `--push` publishes it. It needs an SSH key registered on the AUR account.
+
+To build the same files locally: `bash packaging/scripts/build-release.sh`
+(Arch needs `rpm-tools`, `dpkg`, `zstd` and `python`).
 
 Install the Debian artifact with
 `sudo apt install ./bc250-control-center_*.deb`; APT resolves the PyQt6, Qt SVG,

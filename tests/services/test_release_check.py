@@ -7,7 +7,9 @@ rather than trusting to review:
 
 * the URL is https and constant, and a redirect off https is refused;
 * the body read is capped, because whatever comes back is untrusted text — a
-  captive portal, a rate-limit page, a VERSION file mid-edit;
+  captive portal, a rate-limit page;
+* only a final release that carries a package counts: announcing a version
+  nobody can download is what 1.20.0 to 1.20.2 did;
 * nothing identifying the machine is sent;
 * no failure reaches the user: not reaching GitHub shows nothing at all;
 * the answer is cached, so opening the dashboard repeatedly asks once.
@@ -111,9 +113,9 @@ def test_a_published_version_without_a_reachable_flag_claims_nothing():
 # ------------------------------------------------------------------ the fetch
 
 
-def test_the_url_is_https_and_names_one_file():
-    assert release_check.RELEASE_VERSION_URL.startswith("https://")
-    assert release_check.RELEASE_VERSION_URL.endswith("/VERSION")
+def test_the_url_is_https_and_names_the_latest_release():
+    assert release_check.RELEASE_VERSION_URL.startswith("https://api.github.com/")
+    assert release_check.RELEASE_VERSION_URL.endswith("/releases/latest")
     assert release_check.RELEASES_PAGE_URL.startswith("https://")
 
 
@@ -157,27 +159,58 @@ def _with_response(monkeypatch, response):
     return captured
 
 
-def test_a_version_is_read_and_stripped(monkeypatch):
-    _with_response(monkeypatch, _Response(b"1.20.0\n"))
+def _release(tag="1.20.0", *, assets=("bc250-control-center-1.20.0.noarch.rpm",), **extra) -> bytes:
+    payload = {
+        "tag_name": tag,
+        "draft": False,
+        "prerelease": False,
+        "assets": [{"name": name} for name in assets],
+        **extra,
+    }
+    return json.dumps(payload).encode("utf-8")
+
+
+@pytest.mark.parametrize("tag", ["1.20.0", "v1.20.0"])
+def test_the_latest_release_tag_is_the_answer(monkeypatch, tag):
+    _with_response(monkeypatch, _Response(_release(tag)))
     assert release_check.fetch_published_version() == "1.20.0"
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        _release(assets=()),
+        _release(assets=("SHA256SUMS.txt",)),
+        _release(draft=True),
+        _release(prerelease=True),
+        _release("1.21.0-rc1"),
+        _release(""),
+        b'["not", "a", "release"]',
+        b"1.20.0\n",
+    ],
+    ids=["no-assets", "no-package", "draft", "prerelease", "not-a-version", "no-tag", "list", "plain-text"],
+)
+def test_a_release_nobody_can_install_is_not_announced(monkeypatch, body):
+    _with_response(monkeypatch, _Response(body))
+    assert release_check.fetch_published_version() == ""
+
+
 def test_the_body_read_is_capped(monkeypatch):
-    response = _Response(b"1.20.0\n")
+    response = _Response(_release())
     _with_response(monkeypatch, response)
     release_check.fetch_published_version()
     # One byte over the limit, so a longer body is visibly wrong rather than
     # truncated into something that happens to parse.
-    assert response.reads == [MAX_VERSION_TEXT_BYTES + 1]
+    assert response.reads == [release_check.MAX_RELEASE_BYTES + 1]
 
 
 def test_a_body_longer_than_the_cap_is_discarded(monkeypatch):
-    _with_response(monkeypatch, _Response(b"x" * (MAX_VERSION_TEXT_BYTES + 40)))
+    _with_response(monkeypatch, _Response(b"x" * (release_check.MAX_RELEASE_BYTES + 40)))
     assert release_check.fetch_published_version() == ""
 
 
 def test_a_non_200_response_is_not_parsed(monkeypatch):
-    _with_response(monkeypatch, _Response(b"1.99.0", status=404))
+    _with_response(monkeypatch, _Response(_release("1.99.0"), status=404))
     assert release_check.fetch_published_version() == ""
 
 
@@ -201,7 +234,7 @@ def test_no_network_failure_escapes(monkeypatch, failure):
 
 
 def test_the_request_sends_nothing_about_the_machine(monkeypatch):
-    captured = _with_response(monkeypatch, _Response(b"1.20.0"))
+    captured = _with_response(monkeypatch, _Response(_release()))
     release_check.fetch_published_version()
     request = captured["request"]
     assert request.get_method() == "GET"
@@ -213,7 +246,7 @@ def test_the_request_sends_nothing_about_the_machine(monkeypatch):
 
 
 def test_the_request_is_bounded_in_time(monkeypatch):
-    captured = _with_response(monkeypatch, _Response(b"1.20.0"))
+    captured = _with_response(monkeypatch, _Response(_release()))
     release_check.fetch_published_version()
     assert captured["timeout"] == release_check.REQUEST_TIMEOUT_SECONDS
     assert release_check.REQUEST_TIMEOUT_SECONDS <= 10

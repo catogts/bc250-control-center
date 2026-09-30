@@ -16,6 +16,7 @@ cleanup_nct_source_stage() {
 trap cleanup_nct_source_stage EXIT
 
 bold "${BC250_OS_LABEL:-Debian family}: preparing nct6687 PWM driver"
+if bc250_nct6687_already_usable "$KERNEL_RELEASE"; then exit 0; fi
 bc250_kernel_headers_preflight "$KERNEL_RELEASE" || true
 as_root apt-get update
 as_root apt-get install -y lm-sensors git build-essential dkms dh-dkms kmod

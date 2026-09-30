@@ -136,6 +136,8 @@ def _environment(tmp_path: Path, plugins: Path, *, fail_final_move: bool = False
         "DECKY_PLUGIN_ROOT": str(plugins),
         "BC250_QAM_TEST_BACKUP_ROOT": str(tmp_path),
         "BC250_QAM_TEST_SYSTEMCTL_LOG": str(tmp_path / "systemctl.log"),
+        # A systemd host, whatever the machine running the tests boots.
+        "BC250_SYSTEMD_RUNTIME_DIR": str(tmp_path),
         "PATH": f"{binaries}:{os.environ['PATH']}",
     }
 

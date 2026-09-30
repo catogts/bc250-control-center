@@ -13,10 +13,12 @@ from bc250cc.application.preparation.component_engine import (
     normalize_components,
     unavailable_components,
 )
+from bc250cc.infrastructure.accessories import accessory_inventory
 from bc250cc.infrastructure.bazzite_async_compute import (
     build_bazzite_async_compute_command,
     probe_bazzite_async_compute,
 )
+from bc250cc.infrastructure.bazzite_deployment import probe_bazzite_reboot_pending
 from bc250cc.infrastructure.bazzite_memory_tuning import (
     build_bazzite_memory_tuning_command,
 )
@@ -95,6 +97,7 @@ from bc250cc.infrastructure.preparation_workflow import (
     build_preparation_command,
     secure_cpu_checkout_command,
 )
+from bc250cc.infrastructure.privileged_install_state import privileged_install_state
 from bc250cc.infrastructure.radv_async_compute import (
     build_radv_async_command,
     radv_async_state,
@@ -107,7 +110,10 @@ from bc250cc.infrastructure.source_checkout import (
     clone_or_update_commit_with_archive,
     clone_or_update_with_archive,
 )
-from bc250cc.infrastructure.steam_launch_options import add_dll_override
+from bc250cc.infrastructure.steam_launch_options import (
+    add_dll_override,
+    add_dll_override_to_library,
+)
 from bc250cc.infrastructure.steamos_amdgpu import (
     build_steamos_amdgpu_diagnostic_command,
     build_steamos_compatibility_command,
@@ -133,6 +139,10 @@ from bc250cc.infrastructure.steamos_cu_shell import (
 from bc250cc.infrastructure.steamos_graphics_runtime import (
     build_steamos_graphics_command,
     probe_steamos_graphics_runtime,
+)
+from bc250cc.infrastructure.steamos_readonly import (
+    build_steamos_readonly_command,
+    probe_steamos_readonly,
 )
 from bc250cc.infrastructure.steamos_shell import wrap_steamos_writable_command
 from bc250cc.infrastructure.system_setup import command as system_setup_command
@@ -161,7 +171,7 @@ STANDARD_CU_REVIEWED_COMMIT = EXTERNAL_TOOLS["cu_manager_standard"].reviewed_rev
 STEAMOS_SMU_OC_REVIEWED_COMMIT = EXTERNAL_TOOLS["cpu_smu_oc"].reviewed_revision
 STEAMOS_CORE_UNLOCK_REVIEWED_COMMIT = EXTERNAL_TOOLS["core_unlock"].reviewed_revision
 STEAMOS_CYAN_REVIEWED_COMMIT = EXTERNAL_TOOLS["cyan_smu"].reviewed_revision
-CYAN_REVIEWED_RELEASE = "v0.4.12"
+CYAN_REVIEWED_RELEASE = "v0.4.13"
 # Retain the former SteamOS-specific spelling for callers that still import it.
 # The executable release is now fixed on every supported distribution.
 STEAMOS_CYAN_REVIEWED_RELEASE = CYAN_REVIEWED_RELEASE
@@ -228,7 +238,24 @@ class DependenciasRepository:
             raise RuntimeError('CPU mitigation management is available only on Bazzite.')
         return self._abrir_terminal(
             build_bazzite_mitigations_command(action),
-            'Configurar mitigaciones de CPU en Bazzite',
+            'Configure CPU mitigations on Bazzite',
+        )
+
+    def gestionar_solo_lectura_steamos(self, action: str):
+        if self._os_repository().family != 'steamos':
+            raise RuntimeError('The read-only switch is available only on SteamOS.')
+        return self._abrir_terminal(
+            build_steamos_readonly_command(action),
+            'SteamOS read-only mode',
+        )
+
+    def gestionar_opciones_kernel(self, options):
+        """Set which of mitigations=off / nosmt Control Center manages."""
+        if self._os_repository().family in {'bazzite', 'steamos'}:
+            raise RuntimeError('Kernel boot options are managed differently on this system.')
+        return self._abrir_terminal(
+            system_setup_command('kernel-options-set', kernel_options=tuple(options)),
+            'BC250 kernel boot options',
         )
 
     def gestionar_acpi(self, action: str):
@@ -404,9 +431,9 @@ class DependenciasRepository:
             )
         action = str(action or '').strip().lower()
         labels = {
-            'kernel': 'Instalar kernel BC-250 para Arch/CachyOS',
-            'mesa': 'Instalar Mesa BC-250 para Arch/CachyOS',
-            'full': 'Instalar kernel y Mesa BC-250 para Arch/CachyOS',
+            'kernel': 'Install BC-250 kernel for Arch/CachyOS',
+            'mesa': 'Install BC-250 Mesa for Arch/CachyOS',
+            'full': 'Install BC-250 kernel and Mesa for Arch/CachyOS',
         }
         if action not in labels:
             raise ValueError('Unsupported CachyOS BC-250 action.')
@@ -426,6 +453,12 @@ class DependenciasRepository:
         action = str(action or '').strip().lower()
         if action == 'launch':
             return launch_opticlient()
+        if action == 'steam_option_all':
+            # One launch option for the whole library, so the client only has
+            # to copy files into a new game. dxgi is the client's default.
+            result = add_dll_override_to_library('dxgi')
+            self.estado_herramientas_cache = None
+            return result
         if action.startswith('steam_option:'):
             # The one step the client leaves to the user: the Steam launch
             # option that makes Proton load OptiScaler. Written only while
@@ -764,6 +797,22 @@ class DependenciasRepository:
             else {'available': False, 'active': False, 'configured': False,
                   'managed': False, 'reboot_required': False, 'state': 'unsupported'}
         )
+        # Packages Prepare dependencies layered that wait for the next boot.
+        bazzite_reboot_pending = (
+            self._optional_inventory_probe(
+                probe_bazzite_reboot_pending,
+                {'available': False, 'pending': False, 'packages': []},
+            )
+            if os_info.family == 'bazzite'
+            else {'available': False, 'pending': False, 'packages': []}
+        )
+        steamos_readonly = (
+            self._optional_inventory_probe(
+                probe_steamos_readonly, {'available': False, 'state': 'unknown'}
+            )
+            if os_info.family == 'steamos'
+            else {'available': False, 'state': 'unsupported'}
+        )
         system_setup = system_setup_inventory()
         init_manager = detect_init_manager()
         init_preflight = (
@@ -827,6 +876,11 @@ class DependenciasRepository:
             'cu_manager_standard_backend': standard_backend,
             'cu_manager_steamos_exists': steamos_exists,
             'cu_steamos_umr_database': str(self._steamos_umr_database_path()),
+            'cu_steamos_umr_database_ready': bool(
+                is_steamos and self._optional_inventory_probe(
+                    lambda: any(self._steamos_umr_database_path().iterdir()), False,
+                )
+            ),
             'incompatible_gpu_governors': conflictos_gpu,
             'incompatible_gpu_governor_detected': bool(conflictos_gpu),
             'is_steamos': is_steamos,
@@ -887,8 +941,17 @@ class DependenciasRepository:
             'quick_access': quick_access,
             'memory_runtime': memory_runtime,
             'bazzite_mitigations': bazzite_mitigations,
+            'bazzite_reboot_pending': bazzite_reboot_pending,
+            'steamos_readonly': steamos_readonly,
             'system_setup': system_setup,
+            'privileged_install': self._optional_inventory_probe(
+                privileged_install_state,
+                {'state': 'unknown', 'outdated': [], 'checkout': False, 'package': ''},
+            ),
             'external_integrations': external_integrations,
+            'accessories': self._optional_inventory_probe(
+                lambda: accessory_inventory(os_info.family, self._tool_dir()), {},
+            ),
             'missing_optional_features': [
                 item
                 for item in optional_dependencies.values()
@@ -1603,7 +1666,7 @@ class DependenciasRepository:
             comando = self._comando_desactivar_gobernadores_incompatibles(conflicts) + '; ' + comando
         comando = wrap_steamos_writable_command(comando, family=os_repository.info.family)
         self.estado_herramientas_cache = None
-        return self._abrir_terminal(comando, f'Instalar {selected}')
+        return self._abrir_terminal(comando, f'Install {selected}')
 
     def cambiar_governor(self, governor):
         """Install/update and activate exactly one selected GPU governor.
@@ -1643,7 +1706,7 @@ class DependenciasRepository:
         command = wrap_steamos_writable_command(command, family=os_repository.info.family)
         self.estado_bc250_cache = None
         self.estado_herramientas_cache = None
-        return self._abrir_terminal(command, f'Cambiar a {selected}')
+        return self._abrir_terminal(command, f'Switch to {selected}')
 
     def desinstalar_governor(self, governor):
         selected = normalize_governor_preference(governor)
@@ -1722,7 +1785,7 @@ class DependenciasRepository:
         command = self._join_shell_commands(commands)
         command = wrap_steamos_writable_command(command, family=family)
         self.estado_herramientas_cache = None
-        return self._abrir_terminal(command, f'Desinstalar {selected}')
+        return self._abrir_terminal(command, f'Uninstall {selected}')
 
     def instalar_cpu_oc(self):
         tools = self.estado_herramientas_bc250()
@@ -1735,7 +1798,7 @@ class DependenciasRepository:
                 f'echo "OK: bc250_smu_oc repository found at {path}"; '
                 'echo "The app runs bc250_detect.py directly to avoid PEP 668 conflicts."'
             )
-            return self._abrir_terminal(cmd, 'Preparar bc250_smu_oc')
+            return self._abrir_terminal(cmd, 'Prepare bc250_smu_oc')
 
         os_repository = self._os_repository()
         destination = self._tool_dir() / 'bc250_smu_oc'
@@ -1765,7 +1828,7 @@ class DependenciasRepository:
             f'echo "OK: bc250_smu_oc is ready at {shlex.quote(str(destination))}"',
         ])
         self.estado_herramientas_cache = None
-        return self._abrir_terminal(self._join_shell_commands(commands), 'Preparar bc250_smu_oc')
+        return self._abrir_terminal(self._join_shell_commands(commands), 'Prepare bc250_smu_oc')
 
     def instalar_core_unlock(self):
         os_repository = self._os_repository()
@@ -1795,7 +1858,7 @@ class DependenciasRepository:
             f'echo "Source: {CORE_UNLOCK_REPOSITORY}"',
         ])
         self.estado_herramientas_cache = None
-        return self._abrir_terminal(self._join_shell_commands(commands), 'Preparar bc250-core-unlock')
+        return self._abrir_terminal(self._join_shell_commands(commands), 'Prepare bc250-core-unlock')
 
     def instalar_cu_manager(self):
         tools = self.estado_herramientas_bc250()
@@ -1861,7 +1924,7 @@ class DependenciasRepository:
             f'echo "OK: 40CU manager is ready at {shlex.quote(str(script))}"'
         )
         self.estado_herramientas_cache = None
-        return self._abrir_terminal(self._join_shell_commands(commands), 'Preparar bc250-cu-live-manager')
+        return self._abrir_terminal(self._join_shell_commands(commands), 'Prepare bc250-cu-live-manager')
 
     def instalar_dependencias_bc250(
         self,
@@ -1897,7 +1960,12 @@ class DependenciasRepository:
             if 'governor' in selected_components
             else []
         )
-        self.estado_herramientas_bc250()
+        inventory = self.estado_herramientas_bc250()
+        already_present = frozenset(
+            key
+            for key, capability in dict(inventory.get('prepare_components') or {}).items()
+            if isinstance(capability, dict) and capability.get('installed')
+        )
         self._tool_dir().mkdir(parents=True, exist_ok=True)
         paths = self.config_paths()
         cpu_destination = self._tool_dir() / 'bc250_smu_oc'
@@ -1928,6 +1996,7 @@ class DependenciasRepository:
             steamos_fix_directory=STEAMOS_FIX_DIRECTORY,
             gddr6_repository=EXTERNAL_TOOLS['gddr6_memory_temp'].upstream,
             gddr6_destination=self._tool_dir() / EXTERNAL_TOOL_DIRECTORIES['gddr6_memory_temp'],
+            already_present=already_present,
         )
         command = build_preparation_command(context)
         self.estado_herramientas_cache = None
@@ -1968,7 +2037,7 @@ class DependenciasRepository:
             return True
         comando = self._comando_instalar_stress()
         self.estado_herramientas_cache = None
-        return self._abrir_terminal(comando, 'Instalar stress para CPU OC')
+        return self._abrir_terminal(comando, 'Install stress for CPU OC')
 
     def instalar_umr(self):
         os_repository = self._os_repository()

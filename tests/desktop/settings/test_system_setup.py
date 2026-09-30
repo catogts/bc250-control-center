@@ -19,6 +19,7 @@ import pytest
 LIB = Path(__file__).resolve().parents[3] / "privileged/lib"
 sys.path.insert(0, str(LIB))
 import system_setup_acpi as acpi  # noqa: E402
+import system_setup_kernel_args as kernel_args  # noqa: E402
 import system_setup_memory as memory  # noqa: E402
 import system_setup_telemetry as telemetry  # noqa: E402
 import system_setup_vram as vram  # noqa: E402
@@ -762,6 +763,36 @@ def test_eight_core_repair_refuses_other_core_topologies(sandbox):
         telemetry.apply(sandbox.host)
 
 
+def test_a_kernel_without_the_legacy_parameter_is_never_offered_the_repair(sandbox):
+    """linux-cachyos-bc250 removed cs_legacy_8core_metrics on 2026-09-17."""
+    sandbox.eight_cores()
+    sandbox.host.path(telemetry.PARAMETER).unlink()
+    sandbox.put(telemetry.LIMINE_CONFIG, 'KERNEL_CMDLINE[default]+="quiet"\n')
+
+    status = telemetry.status(sandbox.host)
+    assert not status["parameter_available"]
+    assert not status["required"] and not status["available"]
+    with pytest.raises(SetupError, match="SMU Reporting Patch"):
+        telemetry.apply(sandbox.host)
+    assert telemetry.ARGUMENT not in sandbox.host.read(telemetry.LIMINE_CONFIG)
+
+
+def test_a_repair_left_from_an_older_kernel_does_not_wait_for_a_reboot_forever(sandbox):
+    sandbox.eight_cores()
+    sandbox.put(telemetry.LIMINE_CONFIG, 'KERNEL_CMDLINE[default]+="quiet"\n')
+    telemetry.apply(sandbox.host)
+    assert telemetry.status(sandbox.host)["reboot_required"]
+
+    # The kernel was updated to one without the parameter.
+    sandbox.host.path(telemetry.PARAMETER).unlink()
+    status = telemetry.status(sandbox.host)
+    assert status["status"] == "obsolete"
+    assert not status["reboot_required"]
+    # Restore still removes the managed block it left behind.
+    telemetry.restore(sandbox.host)
+    assert telemetry.ARGUMENT not in sandbox.host.read(telemetry.LIMINE_CONFIG)
+
+
 def test_eight_core_telemetry_repair_uses_rpm_ostree_kargs(sandbox):
     sandbox.eight_cores()
     sandbox.put("/etc/os-release", "ID=bazzite\nID_LIKE=fedora\n")
@@ -1109,3 +1140,119 @@ def test_package_removal_is_told_exactly_what_to_restore_and_how(sandbox):
 
     memory.apply(host, "restore", -1)
     assert helper["uninstall_blockers"](host, memory, STATE) == ([], [], [])
+
+
+# --------------------------------------------------- kernel boot options
+
+
+def test_kernel_options_use_a_grub_dropin_and_leave_the_main_file_alone(sandbox):
+    sandbox.grub()
+    main = sandbox.host.read(kernel_args.GRUB_CONFIG)
+    assert kernel_args.status(sandbox.host)["backend"] == "grub"
+
+    applied = kernel_args.apply(sandbox.host, ["nosmt"])
+    dropin = sandbox.host.read(kernel_args.GRUB_DROPIN)
+    assert dropin.startswith(MARKER.strip())
+    assert 'GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nosmt"' in dropin
+    assert ("update-grub",) in sandbox.calls
+    assert sandbox.host.read(kernel_args.GRUB_CONFIG) == main
+    assert applied["arguments"]["nosmt"] == {
+        "active": False, "managed": True, "configured": True, "external": False,
+    }
+    assert applied["reboot_required"]
+
+    # Both at once, then back to none: the drop-in goes away entirely.
+    kernel_args.apply(sandbox.host, ["nosmt", "mitigations=off"])
+    assert "mitigations=off nosmt" in sandbox.host.read(kernel_args.GRUB_DROPIN)
+    kernel_args.apply(sandbox.host, [])
+    assert not sandbox.host.path(kernel_args.GRUB_DROPIN).exists()
+    assert sandbox.host.read(kernel_args.GRUB_CONFIG) == main
+
+
+def test_an_option_being_removed_is_not_called_somebody_elses(sandbox):
+    sandbox.grub()
+    kernel_args.apply(sandbox.host, ["nosmt"])
+    sandbox.put("/proc/cmdline", "BOOT_IMAGE=/boot/vmlinuz-linux root=UUID=aaa-bbb rw nosmt")
+    kernel_args.apply(sandbox.host, [])
+    item = kernel_args.status(sandbox.host)["arguments"]["nosmt"]
+    assert item == {"active": True, "managed": False, "configured": False, "external": False}
+    # After the reboot a different boot id and no nosmt: nothing left.
+    sandbox.put("/proc/sys/kernel/random/boot_id", "boot-two")
+    sandbox.put("/proc/cmdline", "BOOT_IMAGE=/boot/vmlinuz-linux root=UUID=aaa-bbb rw")
+    assert not kernel_args.status(sandbox.host)["reboot_required"]
+
+
+def test_an_option_set_by_the_owner_is_reported_and_never_edited(sandbox):
+    sandbox.grub()
+    sandbox.put(
+        kernel_args.GRUB_CONFIG,
+        "GRUB_DEFAULT=0\n# GRUB_CMDLINE_LINUX_DEFAULT=\"nosmt\"\nGRUB_CMDLINE_LINUX_DEFAULT='quiet mitigations=off'\n",
+    )
+    state = kernel_args.status(sandbox.host)["arguments"]
+    assert state["mitigations=off"]["external"] is True
+    assert state["nosmt"]["external"] is False  # a comment is not a setting
+    with pytest.raises(SetupError, match="outside Control Center"):
+        kernel_args.apply(sandbox.host, ["mitigations=off"])
+    assert not sandbox.host.path(kernel_args.GRUB_DROPIN).exists()
+
+
+def test_kernel_options_on_limine_are_one_removable_block(sandbox):
+    original = 'TIMEOUT=5\nKERNEL_CMDLINE[default]+="quiet splash"\n'
+    sandbox.put(kernel_args.LIMINE_CONFIG, original)
+    kernel_args.apply(sandbox.host, ["mitigations=off", "nosmt"])
+    text = sandbox.host.path(kernel_args.LIMINE_CONFIG).read_text()
+    assert text.startswith(original.rstrip("\n"))
+    assert 'KERNEL_CMDLINE[default]+=" mitigations=off nosmt"' in text
+    assert ("limine-mkinitcpio",) in sandbox.calls
+    kernel_args.apply(sandbox.host, [])
+    assert sandbox.host.path(kernel_args.LIMINE_CONFIG).read_text() == original
+
+
+def test_a_failed_limine_regeneration_puts_the_file_back(sandbox):
+    original = 'TIMEOUT=5\n'
+    sandbox.put(kernel_args.LIMINE_CONFIG, original)
+    sandbox.fail = lambda args: args[0] == "limine-mkinitcpio"
+    with pytest.raises(SetupError):
+        kernel_args.apply(sandbox.host, ["nosmt"])
+    assert sandbox.host.path(kernel_args.LIMINE_CONFIG).read_text() == original
+    assert not sandbox.host.state("kernel-options")
+
+
+def test_fedora_uses_grubby_with_only_the_arguments_it_added(sandbox):
+    sandbox.put("/etc/os-release", "ID=fedora\n")
+    assert kernel_args.status(sandbox.host)["backend"] == "grubby"
+    kernel_args.apply(sandbox.host, ["nosmt"])
+    kernel_args.apply(sandbox.host, ["nosmt", "mitigations=off"])
+    kernel_args.apply(sandbox.host, [])
+    grubby = [call for call in sandbox.calls if call[0] == "grubby" and call[1] != "--info=DEFAULT"]
+    assert grubby == [
+        ("grubby", "--update-kernel=ALL", "--args=nosmt"),
+        ("grubby", "--update-kernel=ALL", "--args=mitigations=off"),
+        ("grubby", "--update-kernel=ALL", "--remove-args=mitigations=off nosmt"),
+    ]
+
+
+@pytest.mark.parametrize("release", ['ID=bazzite\nVARIANT_ID=bazzite\n', "ID=steamos\nID_LIKE=arch\n"])
+def test_bazzite_and_steamos_keep_their_own_boot_handling(sandbox, release):
+    sandbox.grub()
+    sandbox.put("/etc/os-release", release)
+    assert kernel_args.status(sandbox.host)["available"] is False
+    with pytest.raises(SetupError):
+        kernel_args.apply(sandbox.host, ["nosmt"])
+
+
+def test_only_the_two_reviewed_arguments_exist(sandbox):
+    sandbox.grub()
+    with pytest.raises(SetupError, match="Only mitigations=off and nosmt"):
+        kernel_args.apply(sandbox.host, ["init=/bin/sh"])
+
+
+def test_the_desktop_bridge_passes_only_the_reviewed_options():
+    from bc250cc.infrastructure.system_setup import command
+
+    text = command("kernel-options-set", kernel_options=("nosmt", "mitigations=off"))
+    assert "kernel-options-set --kernel-options mitigations=off,nosmt" in text
+    assert "kernel-options-set --kernel-options ''" in command("kernel-options-set")
+    with pytest.raises(ValueError):
+        command("kernel-options-set", kernel_options=("init=/bin/sh",))
+

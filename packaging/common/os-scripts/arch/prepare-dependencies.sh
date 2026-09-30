@@ -12,9 +12,32 @@ runtime_packages=(
   jq base-devel fakeroot debugedit
 )
 
+# Only what is missing, and never the whole system on the way. This step used
+# to run ``pacman -Syu`` even when every package was installed: on a CachyOS
+# board it upgraded 22 packages including the kernel, removed the running
+# kernel's modules and headers, and the fan PWM step right after it failed.
+# Arch supports installing from the local database without refreshing it; a
+# full update is the fallback only when that database cannot provide a
+# missing package, because refreshing without upgrading is a partial upgrade.
 install_runtime() {
   bold "${BC250_OS_LABEL:-Arch family}: installing BC250 runtime dependencies"
-  as_root pacman -Syu --needed --noconfirm "${runtime_packages[@]}"
+  local missing=() running_kernel
+  mapfile -t missing < <(pacman -T "${runtime_packages[@]}" 2>/dev/null || true)
+  if ((${#missing[@]} == 0)); then
+    info "Every runtime package is already installed; the system was not updated."
+  else
+    info "Installing only what is missing (no system update): ${missing[*]}"
+    if ! as_root pacman -S --needed --noconfirm "${missing[@]}"; then
+      warn "The local package database could not provide: ${missing[*]}"
+      warn "Arch installs only from an up-to-date database, so this needs a full system update."
+      running_kernel="$(bc250_running_kernel_release)"
+      as_root pacman -Syu --needed --noconfirm "${missing[@]}"
+      if bc250_running_kernel_replaced "$running_kernel"; then
+        warn "The update replaced the running kernel ($running_kernel)."
+        warn "Reboot before preparing kernel modules such as the fan PWM driver."
+      fi
+    fi
+  fi
   verify_command python3
   verify_command git
   verify_command makepkg

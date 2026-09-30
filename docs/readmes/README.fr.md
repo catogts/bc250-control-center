@@ -49,6 +49,19 @@ Sous Debian et Ubuntu, utilisez `apt install` et non `dpkg -i` : APT télécharg
 
 Inutile de revenir sur cette page. Quand une nouvelle version sort, le tableau de bord le signale, montre ce qui a changé et l’installe avec le gestionnaire de paquets de votre système, après avoir vérifié son SHA-256.
 
+Sous SteamOS, la mise à jour désactive la protection en lecture seule, installe puis la réactive. Une mise à jour de SteamOS supprime tout ce qui a été installé dans le système, y compris cette application : ouvrez **Reinstall BC250 Control Center** depuis le menu du mode Bureau, puis préparez à nouveau les dépendances. SteamOS demande le mot de passe de `deck` ; si vous n'en avez jamais défini, exécutez d'abord `passwd` dans Konsole.
+
+**Vous venez de la 1.19 ?** Son outil de mise à jour ne sait pas installer de paquets. Mettez à jour une fois à la main avec le paquet de la [dernière version](https://github.com/movacx/bc250-control-center/releases/latest) ; ensuite l'application se met à jour seule. Sous Bazzite, remplacez la 1.19 en une étape puis redémarrez ; si vous aviez utilisé install-local.sh, retirez d'abord cette copie :
+
+```bash
+# Bazzite / Fedora Atomic
+sudo rpm-ostree uninstall bc250-control-center --install ./bc250-control-center-*.noarch.rpm
+systemctl reboot
+
+# install-local.sh
+bash scripts/uninstall-local.sh
+```
+
 ## Premier démarrage
 
 1. Ouvrez **BC250 Control Center**.

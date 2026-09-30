@@ -1,0 +1,76 @@
+name: Release packages
+
+# Pushing a tag vX.Y.Z builds the four packages and SHA256SUMS.txt from that
+# tag and attaches them to its GitHub release, so a release can no longer
+# exist without its packages (1.20.0 to 1.20.2 had none) or carry
+# hand-renamed files. The in-app updater reads exactly this release.
+#
+# Notes: write them in a draft release for the tag before pushing it and they
+# are kept; without a draft the release gets GitHub's generated notes.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v1.20.4"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    # Arch has every builder in its repositories: rpmbuild (rpm-tools),
+    # dpkg-deb (dpkg) and zstd. The same recipe builds all four locally.
+    container: docker.io/library/archlinux:latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Install the package builders
+        run: pacman -Syu --noconfirm --needed rpm-tools dpkg zstd git python github-cli
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Check that the tag names the version being built
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          version="$(tr -d '[:space:]' < VERSION)"
+          case "$TAG" in
+            "v$version") ;;
+            *) echo "::error::Tag $TAG does not match VERSION $version (expected v$version)."; exit 1 ;;
+          esac
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build the release packages
+        run: bash packaging/scripts/build-release.sh "dist/$VERSION"
+
+      - name: Attach them to the release
+        run: |
+          shopt -s nullglob
+          files=("dist/$VERSION"/*)
+          [ "${#files[@]}" -eq 5 ] || { echo "::error::Expected 4 packages and SHA256SUMS.txt, found ${#files[@]} files."; exit 1; }
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+            # A draft with the notes written beforehand is published now that
+            # its packages are attached; the updater never sees drafts.
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
+              gh release edit "$TAG" --draft=false --latest
+            fi
+          else
+            gh release create "$TAG" "${files[@]}" --verify-tag \
+              --title "BC250 Control Center $VERSION" --generate-notes
+          fi

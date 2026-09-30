@@ -5,8 +5,14 @@ This module does the rest: it reads that release from GitHub, picks the one
 package that matches how this copy was installed, downloads it with the
 checksum GitHub publishes for it, and builds the one command that installs
 it. The command runs in the application's terminal like every other
-privileged workflow, so the password prompt, the output and the exit status
-are the ones the user already knows.
+privileged workflow, so the output and the exit status are the ones the user
+already knows.
+
+Authorization asks for a window first. A password typed into the terminal was
+the only route, and on a board driven with a controller from the sofa nobody
+typed it: sudo timed out twice and the update failed at 81 %. With a
+graphical Polkit agent, pacman, dnf and APT run through ``pkexec``, and
+rpm-ostree asks Polkit itself; the terminal password stays as the fallback.
 
 The same rules as the version check, tightened for a file that gets
 installed:
@@ -19,14 +25,21 @@ installed:
   package manager runs, so a file swapped in the cache meanwhile is refused.
 * **The package manager decides.** pacman, dnf, rpm-ostree and APT install
   the package; nothing here copies files into place itself.
-* **Never guess.** A development checkout, SteamOS' read-only image with a
-  release package, or a release without a package for this system gets the
-  release page instead of a best effort.
+* **Never guess.** A development checkout or a release without a package for
+  this system gets the release page instead of a best effort.
+* **SteamOS too.** Its root is read-only, so the one authorization runs a
+  small root script that switches the protection off, installs the package
+  with pacman and switches it back on, whether pacman succeeded or not.
+* **One package in the cache.** A verified download is reused by a retry
+  instead of fetched again, every other file in the updates folder (older
+  versions, a ``.part`` left by a crash) is removed before a download, and the
+  package is deleted once it is installed.
 """
 
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
 import os
@@ -118,6 +131,10 @@ def _opener():
     return urllib.request.build_opener(_HttpsOnlyRedirect)
 
 
+#: Sections that describe the release page rather than the change.
+_DROPPED_SECTIONS = frozenset({"packages", "paquetes", "screenshots", "capturas", "capturas de pantalla"})
+
+
 def _version_from_tag(tag: str) -> str:
     return tag[1:] if tag[:1] in {"v", "V"} else tag
 
@@ -129,19 +146,25 @@ def clean_release_notes(body: str) -> str:
     the Quick Access panel, notes. The package list is what this dialog
     already chose from, and remote pictures are not loaded inside the
     application, so both go; the rest stays as written.
+
+    HTML goes too. The notes are shown as text, and 1.20.3 pasted the
+    README's screenshot carousel, a ``<table>`` of links, which the dialog
+    printed as raw markup under "Screenshots".
     """
     text = str(body or "").replace("\r\n", "\n")
     text = re.sub(r"<img\b[^>]*>", "", text, flags=re.IGNORECASE)
     text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    text = html.unescape(re.sub(r"</?[A-Za-z][^<>]*>", "", text))
     lines = text.split("\n")
     kept: list[str] = []
     skipping = False
     for line in lines:
         heading = re.match(r"^(#{1,6})\s+(.*)$", line.strip())
         if heading:
-            skipping = heading.group(2).strip().casefold() in {"packages", "paquetes"}
+            skipping = heading.group(2).strip().casefold() in _DROPPED_SECTIONS
         if not skipping:
-            kept.append(line)
+            kept.append(line.rstrip())
     cleaned = "\n".join(kept)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned
@@ -281,13 +304,8 @@ def plan_update(
         )
     if source.channel is UpdateChannel.PACKAGE:
         if source.manager == "pacman":
-            if family == "steamos":
-                return UpdatePlan(
-                    "manual",
-                    reason="SteamOS keeps its system image read-only; install the package from Desktop Mode by hand.",
-                )
             asset = _asset_for(release, ".pkg.tar.zst")
-            manager = "pacman"
+            manager = "pacman-steamos" if family == "steamos" else "pacman"
         elif source.manager == "rpm":
             asset = _asset_for(release, ".rpm", prefer="atomic" if atomic else "fedora")
             manager = "rpm-ostree" if atomic else "dnf"
@@ -325,6 +343,42 @@ def updates_directory() -> Path:
     return directory
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(CHUNK_BYTES), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def prune_updates(directory: Path | None = None, *, keep: str = "") -> None:
+    """Remove everything in the updates folder except the file named ``keep``.
+
+    Older versions and a ``.part`` left by a crash only take space, and a
+    stale file under the same name is re-verified before it is reused.
+    """
+    directory = directory if directory is not None else updates_directory()
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        if entry.name == keep or not entry.is_file() or entry.is_symlink():
+            continue
+        try:
+            entry.unlink()
+        except OSError:
+            logger.debug("Could not remove %s from the updates folder", entry, exc_info=True)
+
+
+def discard_update(path: Path) -> None:
+    """Delete an installed package; the package manager keeps its own copy."""
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError:
+        logger.debug("Could not remove the installed update package", exc_info=True)
+
+
 def download_asset(
     asset: ReleaseAsset,
     directory: Path | None = None,
@@ -336,7 +390,10 @@ def download_asset(
     """Download ``asset`` and prove it is the published file.
 
     Streams to ``<name>.part`` while hashing, and only a complete file whose
-    size and SHA-256 match what GitHub published becomes ``<name>``.
+    size and SHA-256 match what GitHub published becomes ``<name>``. A file
+    already there that still matches is returned without downloading again,
+    which is what makes a retry after a failed install quick; one that does
+    not match is thrown away first.
     """
     if not asset.sha256:
         raise UpdateError("No published checksum; the package will not be downloaded.")
@@ -349,6 +406,17 @@ def download_asset(
     directory = directory if directory is not None else updates_directory()
     target = directory / asset.name
     partial = directory / f"{asset.name}.part"
+    prune_updates(directory, keep=asset.name)
+    if target.is_file() and not target.is_symlink():
+        try:
+            reusable = target.stat().st_size == asset.size and _file_sha256(target) == asset.sha256
+        except OSError:
+            reusable = False
+        if reusable:
+            if progress is not None:
+                progress(asset.size, asset.size)
+            return target
+        target.unlink(missing_ok=True)
     request = urllib.request.Request(asset.url, method="GET", headers={"User-Agent": USER_AGENT})
     digest = hashlib.sha256()
     received = 0
@@ -391,11 +459,124 @@ def download_asset(
     return target
 
 
-def install_command(plan: UpdatePlan, package: Path | None = None) -> str:
+# ``bc250_admin CMD...`` runs CMD as root. With a graphical agent it asks
+# through pkexec's window; when that window is dismissed (126) or no agent
+# answers (127) the terminal asks through sudo instead of failing.
+_ADMIN_FUNCTION = """bc250_admin() {
+  if [ "${BC250_GRAPHICAL_AUTH:-0}" = 1 ] && command -v pkexec >/dev/null 2>&1; then
+    pkexec "$@"
+    bc250_rc=$?
+    if [ "$bc250_rc" -ne 126 ] && [ "$bc250_rc" -ne 127 ]; then return "$bc250_rc"; fi
+    echo "The authorization window did not answer; asking for the password in this terminal."
+  fi
+  sudo "$@"
+}"""
+
+# rpm-ostree talks to its daemon over D-Bus and asks Polkit itself, so it runs
+# without sudo: the desktop shows its authorization window. Only when Polkit
+# refuses without asking (no agent) does it fall back to sudo in the terminal.
+# It waits for a running transaction (Bazzite's automatic system updates) and
+# replaces what the next deployment actually layers, read from rpm-ostree's
+# own status, instead of the booted rpm's name: a plain ``rpm-ostree install``
+# next to a layered older version fails with "cannot install both".
+_RPM_OSTREE_BUSY = (
+    "import json, sys\n"
+    "sys.exit(0 if json.load(sys.stdin).get('transaction') else 1)\n"
+)
+_RPM_OSTREE_LAYERED = (
+    "import json, sys\n"
+    "deployments = json.load(sys.stdin).get('deployments') or [{}]\n"
+    "d = deployments[0]\n"
+    "names = list(d.get('requested-local-packages') or []) + list(d.get('requested-packages') or [])\n"
+    "print(' '.join(n for n in names if n == 'bc250-control-center' or n.startswith('bc250-control-center-')))\n"
+)
+
+
+def _rpm_ostree_install(path: str) -> str:
+    busy = shlex.quote(_RPM_OSTREE_BUSY)
+    layered = shlex.quote(_RPM_OSTREE_LAYERED)
+    return f"""bc250_rpm_ostree() {{
+  bc250_log=$(mktemp)
+  rpm-ostree "$@" 2>&1 | tee "$bc250_log"
+  bc250_rc=${{PIPESTATUS[0]}}
+  if [ "$bc250_rc" -ne 0 ] && grep -qiE 'authoriz|not allowed|polkit' "$bc250_log"; then
+    rm -f "$bc250_log"
+    echo "No authorization window answered; asking for the password in this terminal."
+    sudo rpm-ostree "$@"
+    return $?
+  fi
+  rm -f "$bc250_log"
+  return "$bc250_rc"
+}}
+bc250_waited=0
+while rpm-ostree status --json 2>/dev/null | python3 -c {busy}; do
+  if [ "$bc250_waited" -eq 0 ]; then echo "Another rpm-ostree transaction (usually an automatic system update) is running; waiting for it to finish..."; fi
+  bc250_waited=$((bc250_waited + 1))
+  if [ "$bc250_waited" -ge 180 ]; then echo "ERROR: rpm-ostree stayed busy for 15 minutes. Try again once the system update has finished."; exit 75; fi
+  sleep 5
+done
+bc250_layered=$(rpm-ostree status --json 2>/dev/null | python3 -c {layered})
+if [ -n "$bc250_layered" ]; then
+  bc250_rpm_ostree uninstall $bc250_layered --install {path}
+else
+  bc250_rpm_ostree install {path}
+fi"""
+
+
+# Runs as root with the package path as $1. The read-only protection is
+# restored only if this script is the one that turned it off.
+_STEAMOS_ROOT_INSTALL = r"""set -u
+bc250_package="$1"
+bc250_restore=0
+if command -v steamos-readonly >/dev/null 2>&1 && steamos-readonly status 2>&1 | grep -Eqi '(^|[^a-z])enabled'; then
+  echo "Temporarily disabling SteamOS read-only protection."
+  steamos-readonly disable || exit 70
+  bc250_restore=1
+fi
+pacman -U --noconfirm -- "$bc250_package"
+bc250_rc=$?
+if [ "$bc250_restore" = 1 ]; then
+  echo "Restoring SteamOS read-only protection."
+  if ! steamos-readonly enable; then
+    echo "ERROR: Could not turn read-only protection back on. Run: sudo steamos-readonly enable"
+    [ "$bc250_rc" -eq 0 ] && bc250_rc=71
+  fi
+fi
+exit "$bc250_rc"
+"""
+
+
+def _source_installer(install_root: Path | None) -> str:
+    """install-local.sh, aimed at the prefix this copy was installed under.
+
+    Without PREFIX the installer puts a user's copy in ~/.local, so a copy
+    installed with sudo under /usr/local got a second, newer one in the home
+    folder instead of an update, and the old one kept its menu entry. The
+    previous in-place updater (update-local.sh) passed the prefix; this does
+    the same, with sudo where the installed folder is not the user's.
+    """
+    root = (install_root if install_root is not None else Path(__file__).resolve().parents[3]).resolve()
+    if root.name != PACKAGE_NAME or root.parent.name != "share":
+        return "bash scripts/install-local.sh"
+    prefix = shlex.quote(str(root.parent.parent))
+    if os.access(root, os.W_OK):
+        return f"env PREFIX={prefix} bash scripts/install-local.sh"
+    return f"sudo env PREFIX={prefix} bash scripts/install-local.sh"
+
+
+def install_command(
+    plan: UpdatePlan,
+    package: Path | None = None,
+    *,
+    graphical: bool = False,
+    install_root: Path | None = None,
+) -> str:
     """The shell command the terminal runs for ``plan``.
 
     A downloaded package is checked against its SHA-256 again in the same
-    command, right before the package manager sees it.
+    command, right before the package manager sees it. ``graphical`` says a
+    Polkit agent is running, so the administrator step can ask in a window.
+    ``install_root`` is the folder this copy runs from (for a source install).
     """
     if plan.kind == "aur":
         helper = plan.helper
@@ -412,20 +593,27 @@ def install_command(plan: UpdatePlan, package: Path | None = None) -> str:
     if plan.kind == "source":
         return (
             f"{verify} && workdir=$(mktemp -d) && tar -xzf {path} -C \"$workdir\" "
-            "&& cd \"$workdir\"/bc250-control-center-* && bash scripts/install-local.sh"
+            f"&& cd \"$workdir\"/bc250-control-center-* && {_source_installer(install_root)}"
+        )
+    if plan.manager == "rpm-ostree":
+        return f"{verify} || exit 1\n{_rpm_ostree_install(path)}"
+    auth = "BC250_GRAPHICAL_AUTH=1" if graphical else "BC250_GRAPHICAL_AUTH=0"
+    if plan.manager == "pacman-steamos":
+        from bc250cc.infrastructure.steamos_readonly import STEAMOS_PASSWORD_GUARD
+
+        # One authorization for the whole transaction, not one per step.
+        root_script = shlex.quote(_STEAMOS_ROOT_INSTALL)
+        return (
+            f"{auth}\n{_ADMIN_FUNCTION}\n{STEAMOS_PASSWORD_GUARD}\n"
+            f"{verify} || exit 1\n"
+            "bc250_require_password\n"
+            f"bc250_admin bash -c {root_script} bc250-update {path}"
         )
     install = {
-        "pacman": f"sudo pacman -U --noconfirm -- {path}",
-        "dnf": f"sudo dnf install -y -- {path}",
-        "apt": f"sudo apt install -y -- {path}",
-        # A layered package is replaced in one transaction; a system that has
-        # none layered yet takes it as a new one.
-        "rpm-ostree": (
-            f"current=$(rpm -q {shlex.quote(PACKAGE_NAME)} 2>/dev/null || true); "
-            f"if [ -n \"$current\" ]; then sudo rpm-ostree uninstall \"$current\" --install {path} "
-            f"|| sudo rpm-ostree install {path}; else sudo rpm-ostree install {path}; fi"
-        ),
+        "pacman": f"bc250_admin pacman -U --noconfirm -- {path}",
+        "dnf": f"bc250_admin dnf install -y -- {path}",
+        "apt": f"bc250_admin apt install -y -- {path}",
     }.get(plan.manager)
     if install is None:
         raise UpdateError("No installer is known for this system.")
-    return f"{verify} && {install}"
+    return f"{auth}\n{_ADMIN_FUNCTION}\n{verify} && {install}"

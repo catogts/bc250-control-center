@@ -105,7 +105,7 @@ from ..core.fan_state_presenter import (
 )
 from ..core.preferences import application_settings
 from ..core.state import state_cache_for
-from ..i18n import localize_widget_tree, tr, tr_format
+from ..i18n import localize_widget_tree, shipped_name, tr, tr_format
 from ..theme import COLORS, application_stylesheet, scale_stylesheet
 
 VISIBLE_PWM_ORDER = (2, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
@@ -782,7 +782,8 @@ def load_fan_profiles(settings: QSettings | None = None) -> list[FanProfile]:
             profiles.append(replace(default))
             continue
         percent = max(0, min(100, _integer(settings.value(prefix + "percent", default.percent), default.percent)))
-        profiles.append(replace(default, name=name, percent=percent))
+        # A default saved in some language is the shipped name again.
+        profiles.append(replace(default, name=shipped_name(name, default.name), percent=percent))
     return profiles
 
 
@@ -937,11 +938,9 @@ class FanProfileCard(EditableCardNavigation, QFrame):
         self._percent_spin.setValue(self._default.percent)
 
     def _commit(self) -> None:
-        name = self._name_edit.text().strip() or self._default.name
-        # A name left as the shipped one's translation stays the source
+        # A name left as the shipped one, in any language, stays the source
         # string, so it keeps following the interface language.
-        if name == tr(self._default.name):
-            name = self._default.name
+        name = shipped_name(self._name_edit.text(), self._default.name)
         self._profile = replace(self._profile, name=name, percent=self._percent_spin.value())
         self.cancel_edit()
         self._sync_view()
@@ -2651,6 +2650,9 @@ class FansPage(QWidget):
         summary = FieldRow("Enable automatic curve", rule=False)
         summary.setProperty("fanCurveHeader", True)
         summary.label.setProperty("fanFieldLabel", True)
+        # At 360 px in German ("Automatische Kurve aktivieren") with a wide
+        # font such as DejaVu the label ran under the switch; wrap instead.
+        summary.label.setWordWrap(True)
         self.curve_enabled = ToggleSwitch()
         self.curve_enabled.setAccessibleName(tr("Enable automatic curve"))
         self.curve_enabled.toggled.connect(self._curve_toggle_changed)
@@ -3845,7 +3847,9 @@ class FansPage(QWidget):
             entry = by_key.get(card.profile.key)
             if entry is None:
                 continue
-            card.set_profile(replace(card.profile, name=entry["name"], percent=entry["percent"]))
+            # A file exported in another language still names the shipped tiers.
+            name = shipped_name(entry["name"], DEFAULT_FAN_PROFILES[index].name)
+            card.set_profile(replace(card.profile, name=name, percent=entry["percent"]))
             save_fan_profile(index, card.profile)
         if curve is not None:
             self._replace_curve_points([

@@ -45,6 +45,7 @@ install_build_dependencies() {
 }
 
 bold "${BC250_OS_LABEL:-Fedora}: preparing nct6687 PWM driver"
+if bc250_nct6687_already_usable "$KERNEL_RELEASE"; then exit 0; fi
 bc250_kernel_headers_preflight "$KERNEL_RELEASE" || true
 install_build_dependencies
 bc250_stage_reviewed_git_tree https://github.com/Fred78290/nct6687d "$SOURCE_DIR" "$BC250_NCT6687_REVIEWED_COMMIT" NCT_SOURCE_STAGE

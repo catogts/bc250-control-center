@@ -296,4 +296,4 @@ def test_steamos_cyan_source_and_release_are_pinned_for_reproducible_clean_insta
 
     assert dependencies_module.STEAMOS_CYAN_REVIEWED_COMMIT in command
     assert f"BC250_CYAN_RELEASE_TAG={dependencies_module.STEAMOS_CYAN_REVIEWED_RELEASE}" in command
-    assert dependencies_module.STEAMOS_CYAN_REVIEWED_RELEASE == "v0.4.12"
+    assert dependencies_module.STEAMOS_CYAN_REVIEWED_RELEASE == "v0.4.13"

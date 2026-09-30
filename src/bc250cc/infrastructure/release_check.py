@@ -1,4 +1,4 @@
-"""Read the published VERSION file and remember the answer.
+"""Read the latest published release and remember the answer.
 
 This is the only place the desktop application itself reaches the network.
 Everything else that touches the internet does so inside a shell workflow the
@@ -6,10 +6,14 @@ user launched and can watch, so this one is held to a few rules:
 
 * **HTTPS, one host, one path.** The URL is a constant. A redirect away from
   https is refused rather than followed.
-* **Bounded.** Four seconds, no retries, and at most
-  ``MAX_VERSION_TEXT_BYTES`` read from the body. A published version is a dozen
-  characters; refusing to read more is how a request that landed on an error
-  page or a captive portal fails closed instead of being parsed.
+* **Bounded.** Four seconds, no retries, and at most ``MAX_RELEASE_BYTES``
+  read from the body. Refusing to read more is how a request that landed on an
+  error page or a captive portal fails closed instead of being parsed.
+* **Only what can be installed.** The answer is the tag of the latest
+  published release, and only when that release carries at least one package.
+  The ``VERSION`` file on ``main`` used to be the source, and it ran ahead of
+  the releases: 1.20.0 to 1.20.2 were announced while GitHub had no release
+  for them, so the updater found nothing to install.
 * **Nothing sent.** No cookies, no query string, no identifying header beyond a
   plain product name. Nothing about the machine goes out.
 * **Silent.** No exception leaves this module and no failure is shown to the
@@ -28,22 +32,25 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from bc250cc.domain.updates import MAX_VERSION_TEXT_BYTES, UpdateStatus
+from bc250cc.domain.updates import UpdateStatus, parse_version
 from bc250cc.infrastructure.persistence.config_paths import app_cache_dir
 from bc250cc.shared.version import application_version
 
 logger = logging.getLogger(__name__)
 
 RELEASE_VERSION_URL = (
-    "https://raw.githubusercontent.com/movacx/bc250-control-center/main/VERSION"
+    "https://api.github.com/repos/movacx/bc250-control-center/releases/latest"
 )
+# A release's JSON with its notes and a handful of assets is a few tens of
+# kilobytes; half a megabyte is generous and still refuses a runaway body.
+MAX_RELEASE_BYTES = 512 * 1024
 RELEASES_PAGE_URL = "https://github.com/movacx/bc250-control-center/releases"
 
 REQUEST_TIMEOUT_SECONDS = 4.0
 # Fifteen minutes, not hours.
 #
-# The published file is a handful of bytes behind a CDN, so asking costs
-# almost nothing; being wrong costs the user not hearing about a release they
+# One small request every quarter hour stays far inside GitHub's anonymous
+# rate limit; being wrong costs the user not hearing about a release they
 # could already have. A six-hour window made the check indistinguishable from
 # a hardcoded answer: publish a version, open the dashboard, and nothing
 # happens for the rest of the afternoon.
@@ -103,31 +110,48 @@ def _write_cache(path: Path, published: str, checked_at: float) -> None:
 
 
 def fetch_published_version(*, url: str = RELEASE_VERSION_URL, timeout: float = REQUEST_TIMEOUT_SECONDS) -> str:
-    """The published version string, or ``""`` if it could not be read."""
+    """The latest release's version, or ``""`` if it could not be read."""
     if not url.lower().startswith("https://"):
         return ""
     request = urllib.request.Request(
         url,
         method="GET",
-        headers={"User-Agent": USER_AGENT, "Accept": "text/plain"},
+        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
     )
     opener = urllib.request.build_opener(_HttpsOnlyRedirect)
     try:
         with opener.open(request, timeout=timeout) as response:
             if getattr(response, "status", 200) != 200:
                 return ""
-            # One byte more than a version can be, so a longer body is visibly
-            # wrong rather than silently truncated into something parseable.
-            raw = response.read(MAX_VERSION_TEXT_BYTES + 1)
+            # One byte more than the cap, so a longer body is visibly wrong
+            # rather than silently truncated into something parseable.
+            raw = response.read(MAX_RELEASE_BYTES + 1)
     except (urllib.error.URLError, OSError, ValueError) as error:
         logger.debug("Release check could not reach %s: %s", url, error)
         return ""
-    if len(raw) > MAX_VERSION_TEXT_BYTES:
+    if len(raw) > MAX_RELEASE_BYTES:
         return ""
     try:
-        return raw.decode("utf-8", "strict").strip()
-    except UnicodeDecodeError:
+        payload = json.loads(raw.decode("utf-8", "strict"))
+    except (UnicodeDecodeError, ValueError):
         return ""
+    return _installable_version(payload)
+
+
+def _installable_version(payload: object) -> str:
+    """The release's version when it is final and carries a package."""
+    if not isinstance(payload, dict) or payload.get("draft") or payload.get("prerelease"):
+        return ""
+    tag = str(payload.get("tag_name") or "").strip()
+    if parse_version(tag) is None:
+        return ""
+    assets = payload.get("assets")
+    if not isinstance(assets, list) or not any(
+        isinstance(asset, dict) and str(asset.get("name") or "").startswith("bc250-control-center")
+        for asset in assets
+    ):
+        return ""
+    return tag[1:] if tag[:1] in {"v", "V"} else tag
 
 
 def check_for_update(

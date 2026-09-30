@@ -40,9 +40,12 @@ required=(
   share/bc250-control-center/integrations/decky/bc250-quick-access/bc250cc/domain/gpu/profiles.py
   share/applications/io.github.movacx.bc250-control-center.desktop
   share/metainfo/io.github.movacx.bc250-control-center.metainfo.xml
-  lib/systemd/user/bc250-control-centerd.service
   share/doc/bc250-control-center/README.md
 )
+# install-local.sh installs the user daemon unit only where systemd runs.
+if [[ -d /run/systemd/system ]]; then
+  required+=(lib/systemd/user/bc250-control-centerd.service)
+fi
 for relative in "${required[@]}"; do
   [[ -f "$SMOKE_PREFIX/$relative" ]] || {
     echo "ERROR: isolated install is missing $relative" >&2
@@ -70,8 +73,10 @@ installed_version="$(tr -d '[:space:]' < "$SMOKE_PREFIX/share/bc250-control-cent
 
 grep -Fqx "Exec=$SMOKE_PREFIX/bin/bc250-control-center" \
   "$SMOKE_PREFIX/share/applications/io.github.movacx.bc250-control-center.desktop"
-grep -Fqx "ExecStart=$SMOKE_PREFIX/bin/bc250-control-centerd" \
-  "$SMOKE_PREFIX/lib/systemd/user/bc250-control-centerd.service"
+if [[ -d /run/systemd/system ]]; then
+  grep -Fqx "ExecStart=$SMOKE_PREFIX/bin/bc250-control-centerd" \
+    "$SMOKE_PREFIX/lib/systemd/user/bc250-control-centerd.service"
+fi
 
 cli_json="$($SMOKE_PREFIX/bin/bc250-control-center-cli --json system)"
 python3 - "$cli_json" <<'PY'

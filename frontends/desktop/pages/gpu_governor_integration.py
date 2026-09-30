@@ -41,7 +41,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Callable
 
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QWidget
 
 from bc250cc.domain.gpu.oberon import (
     OBERON_DESKTOP_PROFILES,
@@ -54,6 +54,7 @@ from .gpu_governor_view import (
     GpuGovernorView,
     GpuProfile,
     GpuViewState,
+    gpu_profile_name,
     voltage_for,
 )
 
@@ -104,7 +105,7 @@ def _load_profiles(page) -> tuple[GpuProfile, ...]:
         profiles.append(
             GpuProfile(
                 key=default.key,
-                name=str(override.get("name") or default.name),
+                name=gpu_profile_name(default.key, override.get("name")),
                 minimum=int(override.get("min") or default.minimum),
                 maximum=int(override.get("max") or default.maximum),
             )
@@ -129,7 +130,7 @@ def _persist_profile(page, profile: GpuProfile) -> None:
     if slot is None:
         return
     payload = {
-        "name": profile.name,
+        "name": gpu_profile_name(profile.key, profile.name),
         "min": int(profile.minimum),
         "max": int(profile.maximum),
         "frequency": int(profile.maximum),
@@ -213,8 +214,9 @@ def _export_profiles_to_decky(page, view: GpuGovernorView) -> None:
     console) without touching ``_run_backend_action``'s cache-invalidation
     path meant for GPU state changes.
     """
+    # Decky shows the names as sent, so they go in the panel's language.
     payload = [
-        {"key": profile.key, "name": profile.name, "min": profile.minimum, "max": profile.maximum}
+        {"key": profile.key, "name": tr(profile.name), "min": profile.minimum, "max": profile.maximum}
         for profile in view.profiles()
     ]
     _run(
@@ -351,13 +353,6 @@ def _reset_fix_flags_to_factory(page) -> None:
         )
 
 
-def _copy_diagnostics(view: GpuGovernorView) -> None:
-    clipboard = QApplication.clipboard()
-    if clipboard is not None:
-        clipboard.setText(view.console_text())
-        view.append_console_line(tr("Diagnostics copied to clipboard."))
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # State push — wraps the page's existing hooks
 # ─────────────────────────────────────────────────────────────────────────────
@@ -392,17 +387,6 @@ def _wrap_apply_state(page, view: GpuGovernorView) -> None:
         view.sync_active_range(state.active_minimum, state.active_maximum)
 
     page._apply_state = patched  # type: ignore[method-assign]
-
-
-def _wrap_console(page, view: GpuGovernorView) -> None:
-    """Mirrors the page's console into the view's console."""
-    original = page._append_console
-
-    def patched(message: str) -> None:
-        original(message)
-        view.append_console_line(str(message))
-
-    page._append_console = patched  # type: ignore[method-assign]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -457,11 +441,9 @@ def install_redesigned_gpu_view(page) -> GpuGovernorView:
     view.export_to_decky_requested.connect(lambda: _export_profiles_to_decky(page, view))
     view.voltage_lab_requested.connect(page.open_voltage_lab)
     view.config_open_requested.connect(page._open_governor_config)
-    view.diagnostics_copy_requested.connect(lambda: _copy_diagnostics(view))
 
     # 4 · backend → view
     _wrap_apply_state(page, view)
-    _wrap_console(page, view)
 
     # 5 · initial state if a refresh already happened
     current = getattr(page, "current_state", None)

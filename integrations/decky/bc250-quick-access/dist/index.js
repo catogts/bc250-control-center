@@ -252,17 +252,6 @@ var codes = [
 		retryable: false
 	},
 	{
-		code: "BC250-DBUS-001",
-		markers: [
-			"QUICK_ACCESS_GPU_DBUS",
-			"QUICK_ACCESS_GPU_ALLOWED"
-		],
-		exit_statuses: [
-			22
-		],
-		retryable: false
-	},
-	{
 		code: "BC250-TIMEOUT-001",
 		markers: [
 			"QUICK_ACCESS_TIMEOUT"
@@ -318,6 +307,20 @@ var codes = [
 			"QUICK_ACCESS_VRAM"
 		],
 		exit_statuses: [
+		],
+		retryable: false
+	},
+	{
+		code: "BC250-DBUS-001",
+		markers: [
+			"QUICK_ACCESS_GPU_DBUS",
+			"QUICK_ACCESS_GPU_ALLOWED",
+			"D-Bus name is unavailable",
+			"Cyan D-Bus policy",
+			"busctl is required for Cyan"
+		],
+		exit_statuses: [
+			22
 		],
 		retryable: false
 	},
@@ -459,6 +462,18 @@ var codes = [
 		retryable: false
 	},
 	{
+		code: "BC250-GPU-005",
+		markers: [
+			"patched_gpu_metrics",
+			"patched_freq_metrics",
+			"move_mount",
+			"mount --bind"
+		],
+		exit_statuses: [
+		],
+		retryable: false
+	},
+	{
 		code: "BC250-PROTOCOL-001",
 		markers: [
 			"Missing action.",
@@ -510,11 +525,13 @@ var markers_longest_first = [
 	"QUICK_ACCESS_CU_SERVICE_VERIFY",
 	"QUICK_ACCESS_CPU_SCALE_VERIFY",
 	"QUICK_ACCESS_GPU_HIGH_POINTS",
+	"busctl is required for Cyan",
 	"QUICK_ACCESS_GPU_SAFE_POINT",
 	"Temperature must be between",
 	"QUICK_ACCESS_GPU_CONFLICT",
 	"does not accept arguments",
 	"QUICK_ACCESS_CPU_SERVICE:",
+	"D-Bus name is unavailable",
 	"Frequency must be between",
 	"QAM CPU frequency must be",
 	"QUICK_ACCESS_GPU_SERVICE",
@@ -540,15 +557,18 @@ var markers_longest_first = [
 	"QUICK_ACCESS_GPU_BUSY",
 	"CPU_BACKEND_UNTRUSTED",
 	"QUICK_ACCESS_TIMEOUT",
+	"patched_freq_metrics",
 	"QUICK_ACCESS_CU_MODE",
 	"QUICK_ACCESS_CONTEXT",
 	"CU_BACKEND_UNTRUSTED",
+	"patched_gpu_metrics",
 	"VID must be between",
 	"QAM CPU VID must be",
 	"CPU_PAYLOAD_REFUSED",
 	"CPU_BACKEND_MISSING",
 	"returned error: 404",
 	"QUICK_ACCESS_VRAM",
+	"Cyan D-Bus policy",
 	"QUICK_ACCESS_AUTH",
 	"CU_HELPER_MISSING",
 	"QUICK_ACCESS_FAN",
@@ -561,7 +581,9 @@ var markers_longest_first = [
 	"Unknown action.",
 	"accepts only",
 	"HELPER_USAGE",
+	"mount --bind",
 	"HELPER_RANGE",
+	"move_mount",
 	"expects:"
 ];
 var errorCatalog = {

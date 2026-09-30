@@ -32,3 +32,14 @@ def clock_mhz(value):
     """Reject broken firmware fields; these bounds do not authorize tuning."""
     number = valid_number(value, 100, 5000)
     return round(number) if number is not None else None
+
+
+#: The widest BC-250 GPU clock range any kernel offers is 350-2230 MHz. A
+#: metrics table read in the wrong layout reported 3882 and 4764 MHz, which
+#: the generic 5 GHz clock ceiling let through as live readings.
+BC250_GPU_CLOCK_MAX_MHZ = 3000
+
+
+def gpu_clock_mhz(value):
+    number = valid_number(value, 100, BC250_GPU_CLOCK_MAX_MHZ)
+    return round(number) if number is not None else None

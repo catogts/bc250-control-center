@@ -106,6 +106,7 @@ def test_real_page_adapter_dispatches_the_exact_confirmed_plan(monkeypatch):
             "last_operation_line": last_operation,
             "_append_console": lambda self, message: calls.append(("console", message)),
             "_run_backend_action": run_action,
+            "_run_service_plan": GpuGovernorPage._run_service_plan,
         },
     )()
 
@@ -115,3 +116,72 @@ def test_real_page_adapter_dispatches_the_exact_confirmed_plan(monkeypatch):
     assert dialog[3]["tone"] == "red"
     assert ("Conflict", "cyan.service") in dialog[3]["summary"]
     assert ("controller", ("activar", True, True)) in calls
+
+
+def _page_without_conflicts(calls, action_backend="cyan-skillfish-governor-smu"):
+    controller = type("Controller", (), {
+        "controlar_governor": lambda self, *args: calls.append(("controller", args)) or "terminal",
+    })()
+    last_operation = type("Status", (), {"set_values": lambda self, *args: None})()
+
+    def run_action(_self, operation, success, *args, **kwargs):
+        success(operation())
+
+    return type("Page", (), {
+        "controller": controller,
+        "current_state": {"governor_backend": action_backend, "tools": {"incompatible_gpu_governors": []}},
+        "last_operation_line": last_operation,
+        "_append_console": lambda self, message: None,
+        "_run_backend_action": run_action,
+        "_run_service_plan": GpuGovernorPage._run_service_plan,
+    })()
+
+
+@pytest.mark.parametrize("action", ["activar", "desactivar", "reiniciar"])
+def test_service_actions_go_straight_to_the_password(monkeypatch, action):
+    """No window before the terminal's own password prompt: one decision, one step."""
+    calls = []
+    monkeypatch.setattr(
+        "frontends.desktop.pages.gpu_governor.ConfirmDialog",
+        lambda *args, **kwargs: calls.append("dialog"),
+    )
+    GpuGovernorPage._service_action(_page_without_conflicts(calls), action)
+    assert "dialog" not in calls
+    assert ("controller", (action, False, False)) in calls
+
+
+def test_the_status_opens_in_the_terminal_and_a_stopped_service_is_not_a_failure(monkeypatch):
+    from bc250cc.infrastructure import gpu_repository
+    from bc250cc.infrastructure.gpu_repository import GPURepository
+
+    opened = []
+    monkeypatch.setattr(gpu_repository, "detect_init_manager", lambda: type(
+        "Init", (), {"kind": "systemd", "persistence_supported": True, "persistence_detail": ""})())
+
+    class Repository(GPURepository):
+        def _selected_gpu_governor(self):
+            return "cyan-skillfish-governor-smu"
+
+        def _command_path(self, _name):
+            return "/usr/bin/cyan"
+
+        def _abrir_terminal(self, command, title):
+            opened.append((command, title))
+            return "launched"
+
+    assert Repository().status_governor() == "launched"
+    command, title = opened[0]
+    assert "systemctl status cyan-skillfish-governor-smu.service --no-pager --full -n 0" in command
+    # Only the current (or last) run, never the whole boot's history again.
+    assert "_SYSTEMD_INVOCATION_ID=" in command and "-n 20" in command
+    assert command.rstrip().endswith("true") and title == "GPU governor status"
+
+
+def test_the_advanced_console_stays_but_has_no_actions(qtbot):
+    from PyQt6.QtWidgets import QPushButton
+
+    from frontends.desktop.pages.gpu_governor_view import OperationsConsole
+
+    console = OperationsConsole()
+    qtbot.addWidget(console)
+    assert console.findChildren(QPushButton) == [] and console.text() == ""

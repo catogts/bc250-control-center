@@ -420,6 +420,8 @@ class DashboardState:
     gpu_dpm_state: str = ""
     gpu_telemetry_invalid: bool = False
     gpu_metrics_layout_mismatch: bool = False
+    #: apu_telemetry's advice for this kernel: turn the SMU patch on or off.
+    gpu_metrics_recommendation: str = ""
     gpu_telemetry_repair_pending: bool = False
     gpu_telemetry_repair_available: bool = True
 
@@ -783,6 +785,14 @@ class DashboardState:
         system_setup_tools = system_setup_tools if isinstance(system_setup_tools, dict) else {}
         telemetry_repair = system_setup_tools.get("telemetry")
         telemetry_repair = telemetry_repair if isinstance(telemetry_repair, dict) else {}
+        # The boot-argument repair only exists on kernels that still carry
+        # cs_legacy_8core_metrics. Asked of the running kernel, not only of
+        # the root helper: a helper from an older install still offered it.
+        apu_parameters = apu_telemetry.get("parameters")
+        legacy_repair_possible = not apu_telemetry or (
+            isinstance(apu_parameters, dict)
+            and apu_parameters.get("cs_legacy_8core_metrics") is not None
+        )
 
         return cls(
             cpu_frequency_mhz=cpu_freq,
@@ -853,12 +863,14 @@ class DashboardState:
             gpu_metrics_layout_mismatch=bool(
                 apu_telemetry.get("layout_mismatch_suspected")
             ),
+            gpu_metrics_recommendation=str(apu_telemetry.get("recommendation") or ""),
             gpu_telemetry_repair_pending=bool(
                 telemetry_repair.get("reboot_required")
                 and not telemetry_repair.get("active")
+                and legacy_repair_possible
             ),
             gpu_telemetry_repair_available=bool(
-                telemetry_repair.get("available", True)
+                telemetry_repair.get("available", True) and legacy_repair_possible
             ),
             active_cus=active_cus,
             effective_cus=effective_cus,

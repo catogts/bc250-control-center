@@ -780,7 +780,8 @@ class CPURepository:
             ),
         }
 
-    def comando_desbloquear_nucleos_cpu(self):
+    def comando_desbloquear_nucleos_cpu(self, ignore_core_mask=False):
+        """``ignore_core_mask`` asks the helper for upstream's ``-f``."""
         init_manager = detect_init_manager()
         if not init_manager.persistence_supported:
             raise RuntimeError(
@@ -820,7 +821,8 @@ class CPURepository:
             metadata = script.stat(follow_symlinks=False)
         if metadata.st_mode & 0o022:
             raise RuntimeError('The upstream CPU core unlock script permissions could not be secured.')
-        return pkexec_argv('pkexec', helper, '--repo', str(repository), '--reboot')
+        extra = ('--ignore-core-mask',) if ignore_core_mask else ()
+        return pkexec_argv('pkexec', helper, '--repo', str(repository), '--reboot', *extra)
 
     def ejecutar_cpu_oc_temporal(self, frecuencia, vid, temp=90):
         """Launch the same protected detector path used by the embedded UI.

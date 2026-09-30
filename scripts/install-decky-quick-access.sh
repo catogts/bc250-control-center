@@ -396,7 +396,8 @@ echo "Installed protected BC250 CPU detector at $CPU_HELPER_DEST"
 # .bc250-decky-stage.XXXXXX.  Reload only Decky's own service after a fully
 # committed transaction; it neither touches BC250 hardware state nor starts a
 # service that was deliberately stopped by the user.
-if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1 && \
+systemd_runtime="${BC250_SYSTEMD_RUNTIME_DIR:-/run/systemd/system}"
+if [[ -d "$systemd_runtime" ]] && command -v systemctl >/dev/null 2>&1 && \
    sudo systemctl is-active --quiet plugin_loader.service; then
   echo "Reloading Decky Plugin Loader so it forgets any previous BC250 bundle path..."
   if sudo systemctl restart plugin_loader.service && \
@@ -406,7 +407,7 @@ if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1 && \
     echo "Warning: BC250 Quick Access was installed, but Decky Plugin Loader could not be reloaded." >&2
     echo "Restart Steam/Game Mode or reboot before opening the BC250 panel." >&2
   fi
-elif [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
+elif [[ -d "$systemd_runtime" ]] && command -v systemctl >/dev/null 2>&1; then
   echo "Decky Plugin Loader is not active. The BC250 panel is installed and will load when Decky starts."
 else
   echo "BC250 Quick Access is installed. This init system has no systemctl integration for Decky reload."

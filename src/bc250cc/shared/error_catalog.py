@@ -49,7 +49,7 @@ _CODES: tuple[ErrorCode, ...] = (
         "BC250-CMD-001",
         "A required program or generated command is missing.",
         "Dependencies were not prepared, a toolkit was removed, or the active distribution provides the program under a different package or path.",
-        "Return to the Dashboard and prepare the affected module. If it was already prepared, run System Health to find the missing path.",
+        "Return to the Dashboard and prepare the affected module.",
         exit_statuses=(31, 47, 48, 127),
         markers=(),
     ),
@@ -81,7 +81,7 @@ _CODES: tuple[ErrorCode, ...] = (
         "BC250-PERM-001",
         "Linux refused access to a required file or device.",
         "A helper, device node, configuration file, or immutable system path has ownership or permission settings that do not allow this operation.",
-        "Use System Health to verify permissions and helpers. On Bazzite or SteamOS, finish any pending deployment and restart before retrying.",
+        "Reinstall this version so its helpers are in place. On Bazzite or SteamOS, finish any pending deployment and restart before retrying.",
         exit_statuses=(11, 13, 14, 15, 16, 17, 71, 77),
         markers=("QUICK_ACCESS_PRIVILEGE",),
     ),
@@ -152,7 +152,22 @@ _CODES: tuple[ErrorCode, ...] = (
         "Cyan is stopped, still starting, using an incompatible configuration, or another governor owns the GPU control path.",
         "Check the governor service status, resolve any Cyan/Oberon conflict, start the selected service, and wait a few seconds before refreshing.",
         exit_statuses=(22,),
-        markers=('QUICK_ACCESS_GPU_DBUS', 'QUICK_ACCESS_GPU_ALLOWED'),
+        # Cyan's own start steps exit 62, which Compute Units owns; without
+        # these a governor that would not start was reported as a CU fault.
+        markers=('QUICK_ACCESS_GPU_DBUS', 'QUICK_ACCESS_GPU_ALLOWED',
+                 'D-Bus name is unavailable', 'Cyan D-Bus policy',
+                 'busctl is required for Cyan'),
+    ),
+    # After BC250-DBUS-001 on purpose: text rules are checked in order and the
+    # last match wins, and a leftover sensor mount is the more precise cause
+    # of a Cyan that never publishes its bus name. Wording shared with the
+    # desktop rule of the same code.
+    ErrorCode(
+        "BC250-GPU-005",
+        "The governor could not put its patched sensor files in place.",
+        "Cyan replaces two GPU sensor files with patched copies while it runs. One replacement from an earlier run is still in place, so the new one cannot be made and the service stops.",
+        "Stop the governor, undo the leftover replacement on the path named in the technical detail, then start it again. If it keeps happening, turn off Fix metrics and Fix frequencies.",
+        markers=('patched_gpu_metrics', 'patched_freq_metrics', 'move_mount', 'mount --bind'),
     ),
     ErrorCode(
         "BC250-RANGE-001",
@@ -230,7 +245,7 @@ _CODES: tuple[ErrorCode, ...] = (
         "BC250-HELPER-001",
         "A protected BC250 helper is missing or failed its safety check.",
         "The application and its root-owned helper are from different installs, or another toolkit changed the helper's owner, mode, or path.",
-        "Reinstall or repair BC250 Control Center, then run System Health. Do not copy a helper manually into /usr/libexec.",
+        "Reinstall BC250 Control Center. Do not copy a helper manually into /usr/libexec.",
         markers=(
             'CU_HELPER_MISSING', 'CU_BACKEND_UNTRUSTED', 'CPU_BACKEND_MISSING',
             'HELPER_PRIVILEGE', 'CPU_BACKEND_UNTRUSTED', 'QUICK_ACCESS_GPU_HELPER',

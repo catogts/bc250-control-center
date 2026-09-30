@@ -167,6 +167,66 @@ bc250_running_kernel_release() {
   printf '%s\n' "${BC250_KERNEL_RELEASE_OVERRIDE:-$(uname -r)}"
 }
 
+# Where the module tree of a kernel release lives; overridable for tests.
+bc250_kernel_module_roots() {
+  if [[ -n "${BC250_MODULE_ROOTS:-}" ]]; then
+    printf '%s\n' ${BC250_MODULE_ROOTS}
+  else
+    printf '%s\n' /usr/lib/modules /lib/modules
+  fi
+}
+
+# A system update can remove the running kernel's module tree (pacman does
+# this as soon as linux-* is upgraded). Nothing can be built or loaded for it
+# until the machine boots the new kernel.
+bc250_running_kernel_replaced() {
+  local release="$1" root
+  while IFS= read -r root; do
+    [[ -d "$root/$release" ]] && return 1
+  done < <(bc250_kernel_module_roots)
+  return 0
+}
+
+# Is a working nct6687 already there, so that nothing has to be compiled?
+# True when the running kernel has the module (a distribution kernel that
+# ships it, or an earlier DKMS build), or when it is loaded right now and an
+# update merely removed its file. Boards set up by other toolkits used to be
+# sent through a full rebuild here, and after a kernel update that rebuild
+# failed on headers for a kernel that no longer existed.
+bc250_nct6687_already_usable() {
+  local release="$1" path=""
+  local proc_modules="${BC250_PROC_MODULES:-/proc/modules}"
+  if have modinfo; then
+    path="$(modinfo -k "$release" -n nct6687 2>/dev/null || true)"
+  fi
+  if [[ -n "$path" && -f "$path" ]]; then
+    info "nct6687 is already installed for $release: $path"
+    info "Nothing needs to be compiled; the module preference and boot loading are refreshed next."
+    return 0
+  fi
+  if grep -q '^nct6687 ' "$proc_modules" 2>/dev/null; then
+    if bc250_running_kernel_replaced "$release"; then
+      info "nct6687 is loaded and working in this session; a system update replaced the running kernel ($release)."
+      if have dkms && dkms status nct6687d 2>/dev/null | grep -q 'installed'; then
+        info "DKMS already builds nct6687 for the installed kernels:"
+        dkms status nct6687d 2>/dev/null | sed 's/^/  /'
+        info "Reboot into the updated kernel when convenient; nothing needs to be compiled now."
+      else
+        warn "Reboot into the updated kernel, then press Prepare PWM driver again so nct6687 is built for it."
+      fi
+      return 0
+    fi
+    info "nct6687 is loaded and working; nothing needs to be compiled."
+    return 0
+  fi
+  if bc250_running_kernel_replaced "$release"; then
+    error "A system update replaced the running kernel ($release); its modules and headers are gone."
+    error "Reboot into the updated kernel, then press Prepare PWM driver again."
+    exit 20
+  fi
+  return 1
+}
+
 bc250_kernel_build_candidates() {
   local running="${1:-$(bc250_running_kernel_release)}"
   local candidate root

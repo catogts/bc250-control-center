@@ -127,14 +127,14 @@ def test_flash_asks_before_writing_and_switches_off_at_the_end():
 
 
 @pytest.mark.parametrize(
-    "key, arguments, clears",
+    "key, arguments",
     [
-        ("p3-chipset-menu", "/p /b /n /k /x /rlc:e", False),
-        ("p5-stock", "/p /b /n /k /x /rlc:e", False),
-        ("meimeidxe-v3", "/P /B /N /K /RLC:E /CLRCFG", True),
+        ("p3-chipset-menu", "/p /b /n /k /x /rlc:e"),
+        ("p5-stock", "/p /b /n /k /x /rlc:e"),
+        ("meimeidxe-v3", "/P /B /N /K /RLC:E /CLRCFG"),
     ],
 )
-def test_the_flash_command_is_the_publishers_own(key, arguments, clears):
+def test_the_flash_command_is_the_publishers_own(key, arguments):
     plan = _plan(key)
     rom = plan.image.rom.name
     flash = _script(plan, "BC250/FLASH.NSH")
@@ -142,14 +142,12 @@ def test_the_flash_command_is_the_publishers_own(key, arguments, clears):
     assert f"\\BC250\\TOOLS\\AfuEfix64.efi \\BC250\\FIRMWARE\\{rom} {arguments}\r\n" in flash
     assert f"\\BC250\\TOOLS\\AfuEfix64.efi \\BC250\\BACKUP\\BACKUP.ROM {arguments}\r\n" in restore
     readme = _script(plan, "BC250/README.TXT")
-    if clears:
-        assert "resets the BIOS settings by itself" in readme
-        assert "Power it on again" in flash
-    else:
-        assert "clear CMOS" in readme
-        assert "no picture" in readme
-        assert "NO PICTURE until the CMOS is cleared" in flash
-        assert "remove the CMOS battery for a minute" in flash
+    # Every image asks for the CMOS, MeiMeiDXE's /CLRCFG included.
+    assert "clear CMOS" in readme
+    assert "no picture" in readme
+    assert "NO PICTURE until the CMOS is cleared" in flash
+    assert "remove the CMOS battery for a minute" in flash
+    assert "resets the BIOS settings by itself" not in readme
 
 
 def test_the_cmos_warning_comes_before_the_key_that_switches_the_board_off():

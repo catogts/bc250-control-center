@@ -15,8 +15,6 @@ from bc250cc.infrastructure.cyan_governor_runtime import (
     parse_systemd_exec_path,
 )
 from bc250cc.infrastructure.dependencias_repository import DependenciasRepository
-from bc250cc.infrastructure.governor_conflicts import CYAN_GOVERNOR, GOVERNOR_SPECS
-from bc250cc.infrastructure.health_repository import HealthRepository
 from bc250cc.infrastructure.preparation_workflow import build_preparation_command
 
 
@@ -157,7 +155,7 @@ def test_prepare_command_clones_smu_and_uses_checksummed_upstream_installer(tmp_
     )
 
     assert "filippor/cyan-skillfish-governor" in command
-    assert "964524d74ba6b69364be39f0e8fa484eb915779e" in command
+    assert "aaed42535622aee1a93df8b22860c409539f67f8" in command
     assert "--branch smu" not in command
     assert "src/gpu_frequency_fix.rs" in command
     assert "DryhoppedIPA" not in command
@@ -218,36 +216,6 @@ def test_runtime_verification_restarts_only_an_already_active_service():
     assert "systemctl enable" not in command
 
 
-def test_health_check_does_not_accept_toml_flag_with_old_runtime(tmp_path, monkeypatch):
-    config = tmp_path / "config.toml"
-    config.write_text(
-        "[gpu-usage]\n"
-        "fix-metrics = true\n"
-        "fix-freq = true\n"
-        'method = "busy-flag"\n\n'
-        "# [frequency-range]\n"
-        "# min = 1000\n"
-        "# max = 1850\n\n"
-        "[[safe-points]]\nfrequency = 1000\nvoltage = 800\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setitem(GOVERNOR_SPECS[CYAN_GOVERNOR], "config_path", str(config))
-    monkeypatch.setattr("bc250cc.infrastructure.health_repository.os.cpu_count", lambda: 16)
-    monkeypatch.setattr(
-        "bc250cc.infrastructure.health_repository.detect_cyan_frequency_fix_runtime",
-        lambda _repository: {
-            "binary_path": "/usr/bin/cyan-skillfish-governor-smu",
-            "supports_frequency_fix": False,
-        },
-    )
-
-    item = HealthRepository()._governor_config_health()
-
-    assert item["status"] == "warning"
-    assert item["data"]["repair_action"] == "update-cyan-runtime"
-    assert "service binary" in item["detail"]
-
-
 def test_prepare_everything_keeps_cyan_frequency_fix_ready_in_automatic_path():
     import inspect
 
@@ -267,7 +235,7 @@ def test_cyan_upstream_installer_preserves_switches_across_core_unlock():
     assert "if (( logical_cpus < 16 )); then" not in script
     assert "preserving the selected Cyan compatibility switches" in script
     assert "install_release" in script
-    assert 'REVIEWED_RELEASE_TAG="v0.4.12"' in script
+    assert 'REVIEWED_RELEASE_TAG="v0.4.13"' in script
     assert 'release_tag="$REVIEWED_RELEASE_TAG"' in script
 
 
@@ -397,7 +365,7 @@ def test_bazzite_runtime_identity_requires_binary_patcher_and_version_match(
     patcher_sha = hashlib.sha256(patcher.read_bytes()).hexdigest()
     (state_dir / "runtime-revision").write_text("bc250cc.2\n", encoding="utf-8")
     (state_dir / "upstream-commit").write_text(
-        "964524d74ba6b69364be39f0e8fa484eb915779e\n", encoding="utf-8"
+        "aaed42535622aee1a93df8b22860c409539f67f8\n", encoding="utf-8"
     )
     (state_dir / "binary-sha256").write_text(binary_sha + "\n", encoding="utf-8")
     (state_dir / "patcher-sha256").write_text(patcher_sha + "\n", encoding="utf-8")

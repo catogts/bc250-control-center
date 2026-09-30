@@ -95,7 +95,15 @@ fi
 * Thu Aug 13 2026 BC250 Control Center <noreply@example.invalid> - $RPM_VERSION-$RPM_RELEASE
 - Reproducible local package build.
 EOF
+# RPM 6 (Arch's rpm-tools, and the release workflow's Arch container) writes
+# the v6 package format by default, whose payload is rpm's own cpio variant
+# (magic 07070X, rpmlib(LargeFiles)). dnf and rpm install it, but rpm-ostree
+# unpacks a local package with libarchive, which only reads standard cpio:
+# on Bazzite and every Fedora Atomic "rpm-ostree install" stopped with
+# "Reading rpm2cpio: Unrecognized archive format". The v4 format keeps the
+# standard payload every published RPM had; rpm 4.x ignores this macro.
 SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" rpmbuild -bb \
+  --define "_rpmformat 4" \
   --define "_topdir $work/top" \
   --define "_buildhost bc250-control-center.invalid" \
   --define "_build_id_links none" \
@@ -107,6 +115,10 @@ SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" rpmbuild -bb \
 # package revision stays inside the metadata, where the package manager needs it.
 built_rpm="$(find "$work/top/RPMS" -type f -name '*.noarch.rpm' -print -quit)"
 [[ -n "$built_rpm" ]] || { echo "rpmbuild produced no noarch package." >&2; exit 70; }
+if rpm -qp --dbpath "$work/rpmdb" --requires "$built_rpm" 2>/dev/null | grep -q '^rpmlib(LargeFiles)'; then
+  echo "rpmbuild wrote a payload rpm-ostree cannot unpack (rpmlib(LargeFiles)); Bazzite could not install it." >&2
+  exit 70
+fi
 target="$OUTPUT_DIR/bc250-control-center-$VERSION.noarch.rpm"
 cp -f -- "$built_rpm" "$target"
 (

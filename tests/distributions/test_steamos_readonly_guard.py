@@ -43,6 +43,10 @@ exec "$@"
         encoding="utf-8",
     )
     sudo.chmod(0o755)
+    # The account sudo authorizes has a password; the guard asks before sudo.
+    passwd = fake_bin / "passwd"
+    passwd.write_text('#!/usr/bin/env bash\necho "$2 P 2026-01-01 -1 -1 -1 -1"\n', encoding="utf-8")
+    passwd.chmod(0o755)
     env = os.environ.copy()
     env.update(
         {

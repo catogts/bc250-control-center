@@ -818,6 +818,28 @@ def tr(text: object, language: str | None = None) -> str:
     return _tr_cached(source, lang)
 
 
+def shipped_name(name: object, source: str, aliases: Iterable[str] = ()) -> str:
+    """``source`` when ``name`` is that shipped default in any language.
+
+    Profile cards save whatever name is left in the field. A default saved as
+    its translation, or as an older release's Spanish source, froze in that
+    language: the card stopped following the interface language, and Reset
+    brought the same text back. A name that reads as the shipped one in any
+    supported language is the source again; anything else is the owner's own
+    name and is kept exactly as typed.
+    """
+    text = str(name or "").strip()
+    if not text:
+        return source
+    folded = text.casefold()
+    for candidate in (source, *aliases):
+        if folded == candidate.casefold() or any(
+            tr(candidate, language).casefold() == folded for language in COMPLETE_LOCALES
+        ):
+            return source
+    return text
+
+
 
 _HISTORY_TITLES = {
     "Manual fan speed applied": "Manual fan speed applied",
@@ -1108,10 +1130,15 @@ _WORKFLOW_TITLES = {
     "Actualizar BC250 Control Center": "Update BC250 Control Center",
     "BC250 fan PWM disable": "Disable BC250 fan PWM",
 }
+# Titles built around a service or governor name. The backend writes them in
+# English now; the Spanish forms are what older history entries recorded.
 _WORKFLOW_TITLE_PATTERNS = (
-    (re.compile(r"^Activar (\S.*)$"), "Enable {name}"),
-    (re.compile(r"^Desactivar (\S.*)$"), "Disable {name}"),
-    (re.compile(r"^Reiniciar (\S.*)$"), "Restart {name}"),
+    (re.compile(r"^(?:Activar|Enable) (\S.*)$"), "Enable {name}"),
+    (re.compile(r"^(?:Desactivar|Disable) (\S.*)$"), "Disable {name}"),
+    (re.compile(r"^(?:Reiniciar|Restart) (\S.*)$"), "Restart {name}"),
+    (re.compile(r"^(?:Desinstalar|Uninstall) (\S.*)$"), "Uninstall {name}"),
+    (re.compile(r"^(?:Instalar|Install) (\S.*)$"), "Install {name}"),
+    (re.compile(r"^(?:Cambiar a|Switch to) (\S.*)$"), "Switch to {name}"),
 )
 
 
@@ -1122,15 +1149,19 @@ def translate_workflow_title(title: object, language: str | None = None) -> str:
         return tr("Terminal", language)
     canonical = _WORKFLOW_TITLES.get(raw) or _HISTORY_TITLES.get(raw, raw)
     lang = resolve_language(language or _CURRENT_LANGUAGE)
+    translated = tr(canonical, lang)
+    # A whole title with its own entry ("Install stress for CPU OC") reads
+    # better than the same title pushed through "Install {name}".
+    if translated != canonical:
+        return translated
     for pattern, template in _WORKFLOW_TITLE_PATTERNS:
         match = pattern.match(canonical)
         if match:
             if lang != "en" and tr(template, lang) == template:
                 return raw
             return tr_format(template, lang, name=match.group(1))
-    translated = tr(canonical, lang)
     # A title with no catalogue entry yet keeps the words the backend wrote.
-    if lang != "en" and translated == canonical and canonical != raw:
+    if lang != "en" and canonical != raw:
         return raw
     return translated
 

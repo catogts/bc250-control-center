@@ -8,6 +8,7 @@ import pytest
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import QApplication, QSizePolicy
 
+from frontends.desktop.components import dashboard_widgets
 from frontends.desktop.components.dashboard_widgets import PreparationSidebar
 
 _APP: QApplication | None = None
@@ -197,7 +198,33 @@ def test_ready_fsr4_runtime_is_offered_while_the_backend_remains_available():
     assert sidebar._fsr4_launch_option == option
 
 
-def test_steamos_ready_fsr4_is_offered_on_the_graphics_card():
+def _steamos_fsr4_ready_state(option: str):
+    state = _state("steamos", {})
+    state.preparation_tools["gfx1013_compute"] = {
+        "reason_key": "steamos-dedicated-backend",
+        "steamos_kernel_ready": True,
+        "steamos_external_radv_state": "ready",
+        "steamos_external_radv_current": True,
+        "steamos_external_fsr4_state": "ready",
+        "steamos_external_fsr4_current": True,
+        "steamos_external_fsr4_launch_option": option,
+    }
+    return state
+
+
+def test_the_superseded_steamos_fsr4_step_stays_off_the_graphics_card():
+    """1.20.3 moved per-game FSR4 to the OptiScaler client (FSR INT8)."""
+    sidebar = _sidebar()
+    sidebar.set_state(_steamos_fsr4_ready_state('"$HOME/x/bc250-fsr4-run" %command%'))
+    assert not sidebar.gfx_card.isHidden()
+    assert sidebar.steamos_fsr4_launch_row.isHidden()
+    assert not sidebar.gfx_tertiary_button.isEnabled()
+
+
+def test_steamos_ready_fsr4_is_offered_on_the_graphics_card(monkeypatch):
+    # The backend is kept for a later return; with the flag on, the card
+    # must still offer it exactly as before.
+    monkeypatch.setattr(dashboard_widgets, "GFX1013_FSR4_UI_ENABLED", True)
     sidebar = _sidebar()
     option = (
         '"$HOME/.local/share/bc250-mesh-shader/fsr4/bc250-fsr4-run" %command%'

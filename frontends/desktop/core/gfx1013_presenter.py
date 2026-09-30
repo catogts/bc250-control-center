@@ -72,7 +72,7 @@ def _detail(reason: str, **state: bool) -> tuple[str, ...]:
     if state["bazzite_current"] and state["bazzite_enabled"]:
         return ("The reviewed Bazzite async-compute driver is installed and enabled. Log out and back in before games and the desktop use it.",)
     if state["bazzite_current"]:
-        return ("The reviewed Bazzite async-compute driver is installed but not enabled system-wide. System Mesa remains unchanged.",)
+        return ("The reviewed Bazzite async-compute driver is installed. If you notice no difference in a game, the global variable may not be active. Copy the launch option below for each game individually, or copy the always-on enable command and paste it into a terminal. You can use the built-in terminal by pressing F4.",)
     if reason == "steamos-dedicated-backend" and state["external_runtime_invalid"]:
         return ("The SteamOS graphics runtime is incomplete or has changed. Use the reviewed repair or remove action before enabling it for games.",)
     if reason == "steamos-dedicated-backend" and state["external_runtime_current"] and not kernel:

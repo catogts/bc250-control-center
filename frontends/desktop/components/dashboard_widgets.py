@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtWidgets import QPushButton as IconButton
 
+from bc250cc.infrastructure.bazzite_async_compute import BAZZITE_ASYNC_COMPUTE_ICD
 from bc250cc.infrastructure.terminal_repository import TerminalRepository
 
 from .. import theme
@@ -1228,6 +1229,8 @@ class PreparationSidebar(QFrame):
             card.checkbox.toggled.connect(self._sync_components)
             self.component_cards[key] = card
         layout.addWidget(self._bazzite_mitigations_panel())
+        layout.addWidget(self._steamos_readonly_panel())
+        layout.addWidget(self._kernel_options_panel())
         layout.addWidget(self.components_host)
         layout.addStretch(1)
         return page
@@ -1727,6 +1730,159 @@ class PreparationSidebar(QFrame):
         panel.hide()
         return panel
 
+    def _steamos_readonly_panel(self) -> QFrame:
+        """SteamOS' read-only root, beside Bazzite's mitigations switch."""
+        panel = QFrame()
+        self.readonly_panel = panel
+        panel.setProperty("dashboardMemoryPanel", True)
+        panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        root = QBoxLayout(QBoxLayout.Direction.LeftToRight, panel)
+        self.readonly_layout = root
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(10)
+        copy = QVBoxLayout()
+        copy.setSpacing(4)
+        header = QHBoxLayout()
+        header.setSpacing(8)
+        header.addWidget(_label("SteamOS read-only mode", "dashboardComponentTitle", wrap=False))
+        self.readonly_status = PillLabel("Checking", "gray")
+        header.addWidget(self.readonly_status)
+        header.addStretch(1)
+        copy.addLayout(header)
+        detail = _label(
+            "SteamOS keeps its system files read-only so an update can replace them whole. Installing packages needs it off; the next SteamOS update turns it back on and removes what was installed.",
+            "dashboardMemoryDetail",
+        )
+        detail.setWordWrap(True)
+        copy.addWidget(detail)
+        root.addLayout(copy, 1)
+        self.readonly_button = QPushButton(tr("Disable read-only mode"))
+        self.readonly_button.setProperty("dashboardCardAction", True)
+        self.readonly_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.readonly_button.clicked.connect(self._request_steamos_readonly)
+        self._readonly_action = "disable"
+        root.addWidget(self.readonly_button)
+        panel.hide()
+        return panel
+
+    #: The two boot options, in the order the panel shows them.
+    KERNEL_OPTION_ROWS = (
+        ("mitigations=off", "CPU security mitigations", "Disable mitigations", "Restore mitigations"),
+        ("nosmt", "Simultaneous multithreading (SMT)", "Disable SMT", "Restore SMT"),
+    )
+
+    def _kernel_options_panel(self) -> QFrame:
+        """mitigations=off and nosmt for mutable distributions.
+
+        Bazzite keeps its own mitigations card and SteamOS rewrites its boot
+        setup, so this panel only appears where the protected helper reports
+        a Limine, GRUB or grubby boot configuration it can manage.
+        """
+        panel = QFrame()
+        self.kernel_options_panel = panel
+        panel.setProperty("dashboardMemoryPanel", True)
+        panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        root = QVBoxLayout(panel)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(8)
+        root.addWidget(_label("Kernel boot options", "dashboardComponentTitle", wrap=False))
+        detail = _label(
+            "Both apply at the next boot and can be restored here. Disabling mitigations exposes the system to CPU vulnerabilities; disabling SMT leaves one thread per core.",
+            "dashboardMemoryDetail",
+        )
+        detail.setWordWrap(True)
+        root.addWidget(detail)
+        self.kernel_option_controls: dict[str, tuple[QLabel, PillLabel, QPushButton]] = {}
+        for option, title, _disable, _restore in self.KERNEL_OPTION_ROWS:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            name = _label(title, "dashboardCompatibilityLabel", wrap=False)
+            row.addWidget(name)
+            pill = PillLabel("Checking", "gray")
+            row.addWidget(pill)
+            row.addStretch(1)
+            button = QPushButton(tr(_disable))
+            button.setProperty("dashboardCardAction", True)
+            button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            button.clicked.connect(lambda _checked=False, value=option: self._request_kernel_option(value))
+            row.addWidget(button)
+            root.addLayout(row)
+            self.kernel_option_controls[option] = (name, pill, button)
+        self._kernel_options_state: dict[str, object] = {}
+        panel.hide()
+        return panel
+
+    def _request_kernel_option(self, option: str) -> None:
+        arguments = _mapping(self._kernel_options_state.get("arguments"))
+        managed = {key for key, value in arguments.items() if _mapping(value).get("managed")}
+        wanted = managed - {option} if option in managed else managed | {option}
+        self.dependency_action_requested.emit(
+            {
+                "action": "kernel_options_set",
+                "governor": "",
+                "selected_components": self.selected_components,
+                "kernel_options": sorted(wanted),
+                "kernel_option_changed": option,
+            }
+        )
+
+    def _update_kernel_options_control(self, tools: Mapping[str, object]) -> None:
+        setup = _mapping(tools.get("system_setup"))
+        state = _mapping(setup.get("kernel_options"))
+        self._kernel_options_state = dict(state)
+        available = bool(setup.get("helper_available") and state.get("available"))
+        self.kernel_options_panel.setVisible(available)
+        if not available:
+            return
+        arguments = _mapping(state.get("arguments"))
+        for option, _title, disable_text, restore_text in self.KERNEL_OPTION_ROWS:
+            _name, pill, button = self.kernel_option_controls[option]
+            item = _mapping(arguments.get(option))
+            if item.get("external"):
+                status, tone = "Set outside Control Center", "blue"
+            elif bool(item.get("configured")) != bool(item.get("active")):
+                status, tone = "Reboot required", "orange"
+            elif item.get("active"):
+                status, tone = "Disabled", "orange"
+            else:
+                status, tone = "Enabled", "green"
+            pill.setText(tr(status))
+            pill.set_tone(tone)
+            managed = bool(item.get("managed"))
+            button.setText(tr(restore_text if managed else disable_text))
+            button.setProperty("dangerAction", not managed)
+            button.style().unpolish(button)
+            button.style().polish(button)
+            button.setEnabled(not item.get("external"))
+
+    def _request_steamos_readonly(self) -> None:
+        self.dependency_action_requested.emit(
+            {
+                "action": f"steamos_readonly_{self._readonly_action}",
+                "governor": "",
+                "selected_components": self.selected_components,
+            }
+        )
+
+    def _update_steamos_readonly_control(self, tools: Mapping[str, object]) -> None:
+        state = _mapping(tools.get("steamos_readonly"))
+        available = bool(state.get("available"))
+        self.readonly_panel.setVisible(available)
+        if not available:
+            return
+        mode = str(state.get("state") or "unknown")
+        status, tone = {
+            "enabled": ("Protected", "green"),
+            "disabled": ("Writable", "orange"),
+        }.get(mode, ("Unknown", "gray"))
+        self.readonly_status.setText(tr(status))
+        self.readonly_status.set_tone(tone)
+        self._readonly_action = "enable" if mode == "disabled" else "disable"
+        self.readonly_button.setText(
+            tr("Turn read-only back on" if self._readonly_action == "enable" else "Disable read-only mode")
+        )
+        self.readonly_button.setEnabled(mode in {"enabled", "disabled"})
+
     def _compatibility_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -1916,6 +2072,31 @@ class PreparationSidebar(QFrame):
             self.gfx_card.layout().insertWidget(3, self.steamos_fsr4_launch_row)
         self.steamos_fsr4_launch_row.hide()
         self._steamos_fsr4_launch_option = ""
+        # Always-on is off by default after install: without it, async compute
+        # only applies to processes launched with VK_DRIVER_FILES set, so the
+        # enable command and the per-game launch option both need a quick copy.
+        # The value is upstream's own driver_files(): the patched 64-bit ICD,
+        # the stock 32-bit one for Proton's helpers, and llvmpipe as the only
+        # Vulkan left should amdgpu ever fail to load.
+        self._bazzite_async_enable_command = "sudo bc250-async-compute always enable"
+        self._bazzite_async_launch_option = (
+            f"VK_DRIVER_FILES={BAZZITE_ASYNC_COMPUTE_ICD}:"
+            "/usr/share/vulkan/icd.d/radeon_icd.i686.json:"
+            "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json %command%"
+        )
+        self.bazzite_enable_row, self.bazzite_enable_copy_button = self._copy_row(
+            "Always-on enable command", "Copy enable command",
+            lambda: self._bazzite_async_enable_command,
+        )
+        self.bazzite_launch_row, self.bazzite_launch_copy_button = self._copy_row(
+            "Per-game launch option", "Copy launch option",
+            lambda: self._bazzite_async_launch_option,
+        )
+        # Above the action buttons, whichever optional rows came before.
+        gfx_layout = self.gfx_card.layout()
+        actions_index = gfx_layout.indexOf(self.gfx_card.actions_panel)
+        gfx_layout.insertWidget(actions_index, self.bazzite_launch_row)
+        gfx_layout.insertWidget(actions_index, self.bazzite_enable_row)
         layout.addWidget(self.gfx_card)
         self.cachyos_stack_card = PreparationInfoCard(
             "Arch / CachyOS BC-250 graphics stack · includes GFX1013 fix",
@@ -2008,6 +2189,9 @@ class PreparationSidebar(QFrame):
         self.fsr4_launch_button = self.fsr4_card.add_action(
             "Open OptiScaler Client", {"action": "fsr4_launch", "governor": ""}
         )
+        self.fsr4_steam_all_button = self.fsr4_card.add_action(
+            "Add to every Steam game", {"action": "fsr4_steam_option_all", "governor": ""}
+        )
         self.fsr4_remove_button = self.fsr4_card.add_action(
             "Remove client",
             {"action": "fsr4_uninstall", "governor": ""},
@@ -2097,6 +2281,7 @@ class PreparationSidebar(QFrame):
         )
         layout.addWidget(self.network_driver_card)
         layout.addWidget(self.printing_driver_card)
+        self._build_accessory_cards(layout)
         layout.addWidget(
             PreparationInfoCard(
                 "External drivers",
@@ -2105,6 +2290,119 @@ class PreparationSidebar(QFrame):
         )
         layout.addStretch(1)
         return page
+
+    def _build_accessory_cards(self, layout: QVBoxLayout) -> None:
+        """Hardware a BC-250 case may carry beside the board.
+
+        Neither card touches the board itself: one drives a cooler's LCD, the
+        other a Corsair hub. Both install a pinned release and keep running
+        through a user service, so they work in Desktop and Game Mode alike.
+        """
+        self.thermalright_card = PreparationInfoCard(
+            "Thermalright cooler display",
+            "TRCC Linux drives the LCD on Thermalright coolers. After you save a theme once, "
+            "it plays in Desktop and Game Mode without any window open.",
+            scope_text="Case accessory",
+            status_text="Checking",
+        )
+        self.corsair_card = PreparationInfoCard(
+            "Corsair fans and RGB",
+            "OpenLinkHub replaces iCUE on Linux for Corsair hubs, AIOs, fans and lighting, "
+            "with its own control panel. The NexGen3D Steam Machine PRO case uses it for its Commander Duo.",
+            scope_text="Case accessory",
+            status_text="Checking",
+        )
+        self.accessory_buttons: dict[str, dict[str, QPushButton]] = {}
+        # One line under the description for what the current state asks of
+        # the owner (restart, log out, plug the device in). Empty most of the time.
+        self._accessory_notes: dict[str, QLabel] = {}
+        for key, card, configure_text in (
+            ("thermalright", self.thermalright_card, "Open configuration"),
+            ("corsair", self.corsair_card, "Open control panel"),
+        ):
+            buttons = {
+                "install": card.add_action("Install", {"accessory": key, "op": "install"}),
+                "configure": card.add_action(configure_text, {"accessory": key, "op": "configure"}),
+                "remove": card.add_action("Remove", {"accessory": key, "op": "remove"}, danger=True),
+                "upstream": card.add_action("Open upstream project", {"accessory": key, "op": "upstream"}),
+            }
+            self.accessory_buttons[key] = buttons
+            note = _label("", "dashboardComponentDetail")
+            note.setProperty("accessoryNote", True)
+            note.hide()
+            card.layout().insertWidget(2, note)
+            self._accessory_notes[key] = note
+            card.action_requested.connect(self._forward_accessory_action)
+            layout.addWidget(card)
+
+    def _forward_accessory_action(self, payload: object) -> None:
+        values = dict(payload) if isinstance(payload, Mapping) else {}
+        accessory, operation = str(values.get("accessory") or ""), str(values.get("op") or "")
+        if accessory and operation:
+            self.driver_support_requested.emit(f"{accessory}:{operation}")
+
+    #: What each state reads as, per accessory: status, tone and the label
+    #: of the install button (empty hides it).
+    _ACCESSORY_STATES = {
+        "unsupported": ("Not available here", "gray", ""),
+        "not-installed": ("Not installed", "gray", "Install"),
+        "reboot-required": ("Restart required", "orange", ""),
+        "update-available": ("Update available", "blue", "Update"),
+        # Once it works, opening it is what the owner came for; a reinstall
+        # is Remove and Install.
+        "relogin-required": ("Log out to finish", "orange", ""),
+        "installed": ("Installed", "blue", ""),
+        "active": ("Active", "green", ""),
+        "managed-elsewhere": ("Installed another way", "blue", ""),
+    }
+    _ACCESSORY_NOTES = {
+        ("thermalright", "unsupported"): "TRCC publishes packages for Arch, CachyOS, Manjaro, Fedora, Bazzite, Debian and Ubuntu. SteamOS is not covered yet.",
+        ("thermalright", "reboot-required"): "TRCC is in the next deployment. Restart, then open the configuration once and save a theme.",
+        ("thermalright", "installed"): "Open the configuration once and save a theme; the display then follows it by itself.",
+        ("corsair", "unsupported"): "OpenLinkHub is published for x86_64 only.",
+        ("corsair", "relogin-required"): "Installed. Log out and back in (or restart) once, so this account can reach the Corsair devices.",
+        ("corsair", "managed-elsewhere"): "OpenLinkHub is already installed on this system outside Control Center, so it is left as it is.",
+    }
+
+    def _render_accessories(self, accessories: Mapping[str, object]) -> None:
+        for key, card in (("thermalright", self.thermalright_card), ("corsair", self.corsair_card)):
+            info = _mapping(accessories.get(key))
+            state = str(info.get("state") or "")
+            buttons = self.accessory_buttons[key]
+            if state not in self._ACCESSORY_STATES:
+                card.set_status("Checking", "gray")
+                for name in ("install", "configure", "remove"):
+                    buttons[name].hide()
+                self._accessory_notes[key].hide()
+                continue
+            status, tone, install_text = self._ACCESSORY_STATES[state]
+            installed = state in {"update-available", "relogin-required", "installed", "active"}
+            if state == "not-installed" and info.get("device"):
+                # The hardware is there and only the software is missing.
+                status, tone = "Device detected", "blue"
+            card.set_status(status, tone)
+            note = self._ACCESSORY_NOTES.get((key, state), "")
+            if state in {"installed", "active"} and not info.get("device"):
+                note = "Nothing is plugged in right now; it starts by itself when the device is connected."
+            card.update_action(
+                buttons["install"],
+                text=install_text or "Install",
+                payload={"accessory": key, "op": "install"},
+                visible=bool(install_text),
+            )
+            card.update_action(
+                buttons["configure"],
+                text="Open configuration" if key == "thermalright" else "Open control panel",
+                payload={"accessory": key, "op": "configure"},
+                visible=installed or state == "managed-elsewhere",
+                enabled=state != "relogin-required",
+            )
+            card.update_action(
+                buttons["remove"], text="Remove",
+                payload={"accessory": key, "op": "remove"}, visible=installed,
+            )
+            self._accessory_notes[key].setText(tr(note))
+            self._accessory_notes[key].setVisible(bool(note))
 
     #: Stable names for the tabs, in order. The guided tour used to address
     #: them by position and pointed at the wrong one after "Memory & Swap"
@@ -2139,22 +2437,27 @@ class PreparationSidebar(QFrame):
             self.memory_swap_apply_button,
             self.memory_ttm_apply_button,
             self.mitigations_apply_button,
+            self.readonly_button,
         ):
             button.setMinimumWidth(
                 min(max(0, (width - 64) // 3), IconButton.sizeHint(button).width())
             )
         compact_mitigations = width < 660
-        self.mitigations_layout.setDirection(
-            QBoxLayout.Direction.TopToBottom
-            if compact_mitigations
-            else QBoxLayout.Direction.LeftToRight
-        )
-        self.mitigations_layout.setAlignment(
-            self.mitigations_apply_button,
-            Qt.AlignmentFlag.AlignLeft
-            if compact_mitigations
-            else Qt.AlignmentFlag.AlignVCenter,
-        )
+        for panel_layout, panel_button in (
+            (self.mitigations_layout, self.mitigations_apply_button),
+            (self.readonly_layout, self.readonly_button),
+        ):
+            panel_layout.setDirection(
+                QBoxLayout.Direction.TopToBottom
+                if compact_mitigations
+                else QBoxLayout.Direction.LeftToRight
+            )
+            panel_layout.setAlignment(
+                panel_button,
+                Qt.AlignmentFlag.AlignLeft
+                if compact_mitigations
+                else Qt.AlignmentFlag.AlignVCenter,
+            )
         component_columns = (
             4 if width >= 1280 else 3 if width >= 980 else 2 if width >= 650 else 1
         )
@@ -2357,6 +2660,8 @@ class PreparationSidebar(QFrame):
         self._update_vram_control()
         actionable = is_bazzite_host(tools)
         self._update_mitigation_control(tools, actionable=actionable)
+        self._update_steamos_readonly_control(tools)
+        self._update_kernel_options_control(tools)
         runtime = _mapping(tools.get("memory_runtime"))
         zram = runtime.get("zram_total_bytes")
         zram_label = (
@@ -2646,6 +2951,40 @@ class PreparationSidebar(QFrame):
             layout.addWidget(button, 0, 3, 2, 1, Qt.AlignmentFlag.AlignVCenter)
         self.fsr4_game_rows[str(game.get("appid") or game.get("name"))] = row
         return row
+
+    def _copy_row(self, label: str, action: str, value) -> tuple[QFrame, IconButton]:
+        """A compact "label ··· ⧉" row that copies ``value()`` when pressed."""
+        row = QFrame()
+        row.setProperty("fsr4LaunchOption", True)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(8, 5, 6, 5)
+        row_layout.setSpacing(7)
+        row_layout.addWidget(_label(label, "dashboardCompatibilityLabel", wrap=False))
+        row_layout.addStretch(1)
+        button = IconButton("⧉")
+        button.setProperty("fsr4LaunchCopy", True)
+        button.setFixedSize(30, 30)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setAccessibleName(tr(action))
+        button.setToolTip(tr(action))
+
+        def copy() -> None:
+            clipboard = QApplication.clipboard()
+            if clipboard is not None:
+                clipboard.setText(value())
+            button.setText("✓")
+            button.setToolTip(tr("Copied"))
+
+            def restore() -> None:
+                button.setText("⧉")
+                button.setToolTip(tr(action))
+
+            QTimer.singleShot(1600, restore)
+
+        button.clicked.connect(copy)
+        row_layout.addWidget(button)
+        row.hide()
+        return row, button
 
     def _copy_fsr4_launch_option(self) -> None:
         if not self._fsr4_launch_option:
@@ -3023,6 +3362,8 @@ class PreparationSidebar(QFrame):
         )
         self._steamos_fsr4_launch_option = ""
         self.steamos_fsr4_launch_row.hide()
+        self.bazzite_enable_row.hide()
+        self.bazzite_launch_row.hide()
         if reason_key == "steamos-dedicated-backend":
             kernel_ready = bool(gfx_state.get("steamos_kernel_ready"))
             kernel_installed = bool(gfx_state.get("steamos_kernel_installed"))
@@ -3191,6 +3532,14 @@ class PreparationSidebar(QFrame):
                 payload={"action": "bazzite_async_upstream", "governor": ""},
                 visible=installed,
             )
+            # Only while the reviewed driver is in place but not always-on:
+            # a damaged install needs Repair first, and an enabled one needs
+            # neither the command nor a launch option.
+            per_game = bool(gfx_state.get("bazzite_async_current")) and not bool(
+                gfx_state.get("bazzite_async_enabled")
+            )
+            self.bazzite_enable_row.setVisible(per_game)
+            self.bazzite_launch_row.setVisible(per_game)
         elif (
             _mapping(gfx_state.get("radv_async")).get("supported")
             and not bool(gfx_state.get("masta_async_compute_ready"))
@@ -3277,6 +3626,11 @@ class PreparationSidebar(QFrame):
             enabled=not fsr4.get("running"),
         )
         self.fsr4_card.update_action(
+            self.fsr4_steam_all_button,
+            text="Add to every Steam game",
+            visible=fsr4_current,
+        )
+        self.fsr4_card.update_action(
             self.fsr4_remove_button, text="Remove client", visible=fsr4_installed,
         )
         self.fsr4_card.update_action(
@@ -3292,6 +3646,8 @@ class PreparationSidebar(QFrame):
                 "Open the client, choose Scan Games, select games and press Install / update selected. "
                 "Each game below says what is still missing before Insert opens OptiScaler."
             ))
+
+        self._render_accessories(_mapping(tools.get("accessories")))
 
         quick = _mapping(tools.get("quick_access"))
         if quick:

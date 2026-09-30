@@ -6,7 +6,7 @@ import re
 import time
 from pathlib import Path
 
-from bc250cc.domain.telemetry import clock_mhz, valid_number, voltage_mv
+from bc250cc.domain.telemetry import clock_mhz, gpu_clock_mhz, valid_number, voltage_mv
 
 
 def _read(path):
@@ -25,14 +25,39 @@ def reading(raw, source, unit, validator):
     }
 
 
-def dpm_reading(path):
+def dpm_reading(path, validator=clock_mhz):
     raw = _read(path)
     matches = re.findall(r"(?im)^\s*\d+:\s*(\d+)\s*MHz\s*\*\s*$", raw or "")
-    result = reading(matches[0] if len(matches) == 1 else None, path, "MHz", clock_mhz)
+    result = reading(matches[0] if len(matches) == 1 else None, path, "MHz", validator)
     result["raw"] = raw
     if raw is not None and len(matches) != 1:
         result["status"] = "invalid"
     return result
+
+
+def metrics_decode(flags: dict) -> str:
+    """Which SMU metrics layout the running amdgpu reads on an 8-core board.
+
+    linux-cachyos-bc250 picks the layout from the physical core count since
+    2026-08-28 (``cs_eight_core_map`` marks that code) and dropped the
+    ``cs_legacy_8core_metrics`` opt-in on 2026-09-17. A kernel without either
+    reads the stock 6-core table whatever the core count.
+    """
+    if flags.get("cs_legacy_8core_metrics") in {"Y", "1"}:
+        return "unpatched-eight-core"
+    if flags.get("cs_eight_core_map") is not None:
+        return "patched-eight-core"
+    return "stock"
+
+
+#: What to change when 8 cores give unreadable telemetry, by decode. The SMU
+#: firmware patch (MeiMeiDXE v3: "SMU Reporting Patch") widens the table the
+#: SMU writes; the kernel has to read that same layout.
+_RECOMMENDATIONS = {
+    "patched-eight-core": "enable_smu_reporting_patch",
+    "unpatched-eight-core": "remove_legacy_metrics_parameter",
+    "stock": "disable_smu_reporting_patch",
+}
 
 
 def collect_apu_telemetry(device=None, *, root=Path("/")):
@@ -60,7 +85,7 @@ def collect_apu_telemetry(device=None, *, root=Path("/")):
     if device is not None:
         for name, filename in (("sclk", "pp_dpm_sclk"), ("mclk", "pp_dpm_mclk"),
                                ("fclk", "pp_dpm_fclk"), ("uclk", "pp_dpm_uclk")):
-            metrics[name] = dpm_reading(device / filename)
+            metrics[name] = dpm_reading(device / filename, gpu_clock_mhz if name == "sclk" else clock_mhz)
         # Cyan Skillfish exports MemclkFrequency through multiple clock names.
         # A plausible number at pp_dpm_fclk does not prove independent FCLK.
         if metrics["fclk"]["value"] is not None:
@@ -79,7 +104,12 @@ def collect_apu_telemetry(device=None, *, root=Path("/")):
                 if valid_number(raw, 100, 130000) is not None else None,
             )
     invalid = [key for key, value in metrics.items() if value["status"] == "invalid"]
-    suspected = len(topology) == 8 and len(invalid) >= 2 and flags["cs_legacy_8core_metrics"] in {"N", "0"}
+    # Whatever the kernel: two unreadable sensors on an 8-core board mean the
+    # kernel and the SMU firmware disagree on the table layout. This used to
+    # also require cs_legacy_8core_metrics, so it went silent once that
+    # parameter was removed from the kernel.
+    suspected = len(topology) == 8 and len(invalid) >= 2
+    decode = metrics_decode(flags)
     return {
         "schema_version": 1, "sampled_at_monotonic": time.monotonic(),
         "boot_id": _read(root / "proc/sys/kernel/random/boot_id"),
@@ -90,5 +120,6 @@ def collect_apu_telemetry(device=None, *, root=Path("/")):
         "status": "invalid" if invalid else "unavailable" if not metrics else "partial"
         if any(item["status"] != "valid" for item in metrics.values()) else "valid",
         "layout_mismatch_suspected": suspected,
-        "recommendation": "verify_firmware_metrics_layout" if suspected else None,
+        "metrics_decode": decode,
+        "recommendation": _RECOMMENDATIONS[decode] if suspected else None,
     }

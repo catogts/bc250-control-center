@@ -73,3 +73,22 @@ def test_reading_time_grows_with_the_text_within_bounds():
 def test_no_window_means_no_toast(monkeypatch):
     monkeypatch.setattr(toast_module.QApplication, "activeWindow", staticmethod(lambda: None))
     assert show_toast(None, "Nothing to anchor") is None
+
+
+def test_a_long_notice_gets_the_height_its_wrapped_text_needs(qtbot):
+    # The size hint counted too few lines, and the last line of a long
+    # dashboard notice was cut off at the bottom of the card.
+    from frontends.desktop.theme import application_stylesheet
+
+    window, _button = _window(qtbot)
+    window.setStyleSheet(application_stylesheet())
+    toast = show_toast(
+        window,
+        "Los componentes de sistema de Control Center están desactualizados",
+        "Son de otra versión, así que algunas acciones pueden fallar. "
+        "Ejecuta scripts/install-local.sh desde esta copia.",
+        tone="orange",
+    )
+    qtbot.wait(50)
+    for label in (toast.title, toast.message):
+        assert label.height() >= label.heightForWidth(label.width())

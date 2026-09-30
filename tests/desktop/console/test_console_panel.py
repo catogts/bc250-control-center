@@ -59,9 +59,9 @@ def test_the_panel_starts_out_of_the_way(panel):
 
 def test_running_a_workflow_reveals_the_panel_and_names_it(qtbot, panel):
     panel.set_auto_hide(False)
-    assert panel.run(["/bin/sleep", "5"], title="Instalar Cyan")
+    assert panel.run(["/bin/sleep", "5"], title="Install Cyan")
     assert panel.isVisible()
-    assert panel.title_label.text() == "Instalar Cyan"
+    assert panel.title_label.text() == "Install Cyan"
     assert panel.busy
     panel.shutdown()
 

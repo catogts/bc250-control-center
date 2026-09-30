@@ -185,6 +185,47 @@ def test_arch_package_has_canonical_metadata_and_is_accepted_by_pacman(tmp_path)
     assert "./.PKGINFO" not in archive_names
 
 
+def _rpm_raw_payload(package: Path) -> bytes:
+    """The payload as rpm-ostree hands it to libarchive: decompressed, not re-encoded."""
+    import gzip
+    import struct
+
+    data = package.read_bytes()
+
+    def header_end(offset: int, pad: bool) -> int:
+        assert data[offset:offset + 3] == b"\x8e\xad\xe8"
+        count, size = struct.unpack(">II", data[offset + 8:offset + 16])
+        total = 16 + 16 * count + size
+        return offset + total + ((-total) % 8 if pad else 0)
+
+    payload = data[header_end(header_end(96, True), False):]
+    if payload[:2] == b"\x1f\x8b":
+        return gzip.decompress(payload)
+    return subprocess.run(["zstd", "-dc"], input=payload, capture_output=True, check=True).stdout
+
+
+def test_the_rpm_payload_is_standard_cpio_that_rpm_ostree_can_unpack(tmp_path):
+    """Reported on a clean Bazzite (2026-09-29): an RPM built on Arch failed with
+    "Reading rpm2cpio: Unrecognized archive format". rpm 6 writes the v6 format,
+    whose payload is rpm's own cpio (07070X); rpm-ostree reads it with libarchive.
+    """
+    if shutil.which("rpmbuild") is None or shutil.which("zstd") is None:
+        return
+    builder = (ROOT / "packaging/scripts/build-rpm.sh").read_text(encoding="utf-8")
+    assert '--define "_rpmformat 4"' in builder
+
+    output = tmp_path / "dist"
+    _run("bash", ROOT / "packaging/scripts/build-rpm.sh", output)
+    package = output / f"bc250-control-center-{VERSION}.noarch.rpm"
+    assert package.read_bytes()[4] == 3, "the lead must say v4"
+    payload = _rpm_raw_payload(package)
+    assert payload[:6] == b"070701"
+    if shutil.which("bsdtar"):
+        listing = subprocess.run(["bsdtar", "-tf", "-"], input=payload, capture_output=True, check=False)
+        assert listing.returncode == 0, listing.stderr
+        assert b"./usr/bin/bc250-control-center" in listing.stdout
+
+
 def test_release_builder_rejects_a_conflicting_version_override(tmp_path):
     environment = dict(os.environ, BC250_VERSION="999.0.0")
     completed = subprocess.run(

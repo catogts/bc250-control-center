@@ -9,6 +9,11 @@ import tempfile
 
 import pytest
 
+# Files the tests create get the same modes everywhere. Ubuntu gives desktop
+# users umask 002, so a payload the test wrote came out group-writable and the
+# GDDR6 ownership check (rightly) refused it on that machine only.
+os.umask(0o022)
+
 # UI tests must not compete with the developer's active Wayland/X11 window for
 # keyboard focus. Callers can still choose another Qt backend explicitly.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -23,6 +28,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _ISOLATED_CONFIG = tempfile.mkdtemp(prefix="bc250-tests-config-")
 os.environ["XDG_CONFIG_HOME"] = _ISOLATED_CONFIG
 atexit.register(shutil.rmtree, _ISOLATED_CONFIG, ignore_errors=True)
+# The same for ~/.local/state: every red dialog a test opens is recorded in the
+# diagnostic history, and terminal logs live there too.
+_ISOLATED_STATE = tempfile.mkdtemp(prefix="bc250-tests-state-")
+os.environ["XDG_STATE_HOME"] = _ISOLATED_STATE
+atexit.register(shutil.rmtree, _ISOLATED_STATE, ignore_errors=True)
 
 
 # Nor may they see the machine's own root fan service (GitHub #15). With
@@ -42,3 +52,26 @@ def _isolated_system_fan_control(monkeypatch):
     root = Path(_NO_SYSTEM_FAN_CONTROL)
     for name in ("POLICY_FILE", "STATUS_FILE", "OVERRIDE_FILE", "UNIT_WANTS", "OPENRC_LINK"):
         monkeypatch.setattr(system_fan_control, name, root / name.lower())
+
+
+# Nor may they depend on which init system the machine happens to run. The
+# developer's board and GitHub's runners boot systemd, a container boots none,
+# and every CPU/CU persistence test then refused with "unknown init". Unless a
+# test passes its own paths, the detector sees a systemd host.
+_SIMULATED_SYSTEMD = tempfile.mkdtemp(prefix="bc250-tests-systemd-")
+atexit.register(shutil.rmtree, _SIMULATED_SYSTEMD, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _simulated_systemd_host(monkeypatch):
+    from pathlib import Path
+
+    from bc250cc.platform.init import services
+
+    defaults = dict(services.detect_init_manager.__kwdefaults__)
+    defaults.update(
+        openrc_softlevel=Path(_SIMULATED_SYSTEMD) / "no-openrc-softlevel",
+        systemd_runtime=Path(_SIMULATED_SYSTEMD),
+        which=lambda name: f"/usr/bin/{name}" if name == "systemctl" else None,
+    )
+    monkeypatch.setattr(services.detect_init_manager, "__kwdefaults__", defaults)

@@ -280,3 +280,165 @@ def add_dll_override(appid: str, dll: str, *, home: Path | None = None,
         changed.append({"profile": path.parent.parent.name, "before": before,
                         "after": after, "backup": str(backup)})
     return {"appid": appid, "dll": dll, "changed": changed}
+
+
+# ------------------------------------------------------------ the whole library
+#
+# Asked for on Reddit (VRRanger): one launch option for every game, so the
+# OptiScaler Client only has to copy files into a new game. dxgi=n,b is safe
+# where OptiScaler is absent: Proton loads the game's own dxgi.dll when there
+# is one and its built-in one otherwise.
+
+#: Steam's own tools also have manifests; launch options mean nothing to them.
+_TOOL_PREFIXES = ("proton", "steam linux runtime", "steamworks common")
+
+
+def _manifest_value(text: str, key: str) -> str:
+    match = re.search(rf'"{key}"\s+"([^"]*)"', text, re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
+def installed_steam_games(home: Path | None = None) -> list[dict]:
+    """Every installed Steam game, from each library's app manifests."""
+    games: dict[str, dict] = {}
+    for root in steam_roots(home):
+        libraries = [root]
+        try:
+            folders = (root / "steamapps/libraryfolders.vdf").read_text(encoding="utf-8", errors="replace")
+            libraries += [Path(_unescape(path)) for path in re.findall(r'"path"\s+"([^"]+)"', folders)]
+        except OSError:
+            pass
+        for library in libraries:
+            for manifest in sorted((library / "steamapps").glob("appmanifest_*.acf")):
+                try:
+                    text = manifest.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                appid, name = _manifest_value(text, "appid"), _manifest_value(text, "name")
+                if appid.isdigit() and not name.lower().startswith(_TOOL_PREFIXES):
+                    games.setdefault(appid, {"appid": appid, "name": name})
+    return sorted(games.values(), key=lambda game: game["name"].lower())
+
+
+def _locate_apps(text: str) -> tuple[dict, dict[str, dict]]:
+    """``_locate`` for every app at once: one pass over the file."""
+    depth = len(APPS_PATH)
+    apps: dict = {}
+    per_app: dict[str, dict] = {}
+    stack: list[str] = []
+    key: str | None = None
+    for kind, start, end, value in _tokens(text):
+        if kind == "str":
+            if key is None:
+                key = value
+                continue
+            if len(stack) == depth + 1 and tuple(stack[:depth]) == APPS_PATH and key.lower() == "launchoptions":
+                per_app.setdefault(stack[-1], {})["value"] = (start, end, value)
+            key = None
+        elif kind == "{":
+            if key is None:
+                raise SteamConfigError("Steam configuration is malformed: a block without a name")
+            stack.append(key.lower())
+            key = None
+            if tuple(stack) == APPS_PATH:
+                apps["open"] = end
+            elif len(stack) == depth + 1 and tuple(stack[:depth]) == APPS_PATH:
+                per_app.setdefault(stack[-1], {})["open"] = end
+        else:
+            if not stack:
+                raise SteamConfigError("Steam configuration is malformed: unbalanced braces")
+            if len(stack) == depth + 1 and tuple(stack[:depth]) == APPS_PATH:
+                per_app.setdefault(stack[-1], {})["close"] = start
+            elif tuple(stack) == APPS_PATH:
+                apps["close"] = start
+            stack.pop()
+    if stack:
+        raise SteamConfigError("Steam configuration is malformed: unbalanced braces")
+    return apps, per_app
+
+
+def _set_many(text: str, wanted: dict[str, str]) -> str:
+    """Set several apps' LaunchOptions in one pass, edits applied back to front."""
+    apps, per_app = _locate_apps(text)
+    if "open" not in apps:
+        raise SteamConfigError("this Steam profile has no apps section yet")
+    edits: list[tuple[int, int, str]] = []
+    new_blocks = []
+    inner = _indent_before(text, apps["close"]) + "\t"
+    for appid, options in wanted.items():
+        found = per_app.get(appid.lower(), {})
+        if "value" in found:
+            start, end, _old = found["value"]
+            edits.append((start, end, _quote(options)))
+        elif "open" in found:
+            app_inner = _indent_before(text, found["close"]) + "\t"
+            edits.append((found["open"], found["open"], f"\n{app_inner}\"LaunchOptions\"\t\t{_quote(options)}"))
+        else:
+            new_blocks.append(
+                f"\n{inner}{_quote(appid)}\n{inner}{{\n"
+                f"{inner}\t\"LaunchOptions\"\t\t{_quote(options)}\n{inner}}}"
+            )
+    if new_blocks:
+        edits.append((apps["open"], apps["open"], "".join(new_blocks)))
+    for start, end, replacement in sorted(edits, key=lambda edit: edit[0], reverse=True):
+        text = text[:start] + replacement + text[end:]
+    return text
+
+
+def add_dll_override_to_library(dll: str = "dxgi", *, home: Path | None = None,
+                                proc: Path = Path("/proc")) -> dict:
+    """Write ``dll=n,b`` into every installed game of every Steam profile.
+
+    Each profile's file is read once, changed in one pass, read back to check
+    every game got exactly what was meant, backed up once and replaced in one
+    step: a failure leaves it as it was.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", dll):
+        raise ValueError("Invalid DLL name.")
+    if steam_running(proc):
+        raise RuntimeError("Close Steam completely first (Steam > Exit), then try again: Steam rewrites its settings when it closes.")
+    games = installed_steam_games(home)
+    if not games:
+        raise RuntimeError("No installed Steam game was found.")
+    files = localconfig_files(home)
+    if not files:
+        raise RuntimeError("No Steam profile was found in this home folder.")
+    changed_games: set[str] = set()
+    already: set[str] = set()
+    backups = []
+    for path in files:
+        try:
+            original = path.read_text(encoding="utf-8")
+            apps, per_app = _locate_apps(original)
+        except (OSError, UnicodeDecodeError, SteamConfigError):
+            continue  # a profile this module cannot read is left alone
+        if "open" not in apps:
+            continue  # a profile that never ran a game
+        wanted = {}
+        for game in games:
+            before = per_app.get(game["appid"], {}).get("value", (0, 0, ""))[2]
+            after = merge_dll_override(before, dll)
+            if after == before and "value" in per_app.get(game["appid"], {}):
+                already.add(game["appid"])
+            else:
+                wanted[game["appid"]] = after
+        if not wanted:
+            continue
+        updated = _set_many(original, wanted)
+        _apps, check = _locate_apps(updated)
+        if any(check.get(appid, {}).get("value", (0, 0, None))[2] != options for appid, options in wanted.items()):
+            raise SteamConfigError(f"{path}: the change could not be read back; nothing was written")
+        backup = path.with_name(path.name + BACKUP_SUFFIX + time.strftime("%Y%m%d-%H%M%S"))
+        shutil.copy2(path, backup)
+        temporary = path.with_name(path.name + ".bc250-tmp")
+        temporary.write_text(updated, encoding="utf-8")
+        os.replace(temporary, path)
+        backups.append(str(backup))
+        changed_games.update(wanted)
+    return {
+        "dll": dll,
+        "games": len(games),
+        "changed": len(changed_games),
+        "already": len(already - changed_games),
+        "backups": backups,
+    }

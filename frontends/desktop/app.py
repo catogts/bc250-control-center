@@ -26,6 +26,7 @@ from .components.sidebar import Sidebar
 from .components.widgets import InfoDialog
 from .console import ConsoleBeacon, ConsoleHost, ConsolePanel
 from .core.alerts import SmartAlertMonitor
+from .core.diagnostic_history import record_terminal_failure
 from .core.gamepad import GamepadNavigationController
 from .core.preferences import UiPreferences
 from .core.state import state_cache_for
@@ -743,6 +744,8 @@ class ControlCenterWindow(QMainWindow):
         mark_first_run_done(self.settings)
         if wants_tour:
             self.start_tour()
+        else:
+            self.dashboard.announce_pending_attention()
 
     # ------------------------------------------------------------ the tour
 
@@ -794,10 +797,19 @@ class ControlCenterWindow(QMainWindow):
             dialog.close()
         QTimer.singleShot(0, self.start_tour)
 
+    def _update_requested_from_settings(self) -> None:
+        """Close the modal Settings first: the updater is a window of its own."""
+        dialog = getattr(self, "settings_dialog", None)
+        if dialog is not None:
+            dialog.close()
+        QTimer.singleShot(0, self.open_update_dialog)
+
     def _tour_finished(self) -> None:
         # The pages are live again the moment the spotlight is gone; nothing
         # was disabled for the tour, because the tour only ever navigated.
         self._sync_current_page_layout()
+        # The notices held back while the tour pointed at the pages.
+        self.dashboard.announce_pending_attention()
 
     def _apply_language(self, language: str, *, persist: bool = True) -> None:
         requested = normalize_language(language)
@@ -1139,6 +1151,7 @@ class ControlCenterWindow(QMainWindow):
             dialog.gddr6_manual_changed.connect(self._set_gddr6_manual_override)
             dialog.vrm_manual_changed.connect(self._set_vrm_manual)
             dialog.tour_requested.connect(self._tour_requested_from_settings)
+            dialog.update_requested.connect(self._update_requested_from_settings)
             self.settings_dialog = dialog
         dialog = self.settings_dialog
         dialog.select_section(section)
@@ -1250,7 +1263,12 @@ class ControlCenterWindow(QMainWindow):
         from .components.update_dialog import UpdateDialog
 
         dialog = getattr(self, "update_dialog", None)
-        if dialog is not None and dialog.isVisible():
+        # "Hide" during an install only hides the dialog. Opening a fresh one
+        # then offered the same update again, and after a finished install
+        # it would have downloaded and installed it a second time.
+        resumable = getattr(dialog, "resumable", None)
+        if dialog is not None and (dialog.isVisible() or (callable(resumable) and resumable())):
+            dialog.show()
             dialog.raise_()
             dialog.activateWindow()
             return
@@ -1263,6 +1281,9 @@ class ControlCenterWindow(QMainWindow):
         dialog.restart_requested.connect(self._restart_application)
         self.update_dialog = dialog
         dialog.show()
+        dismiss = getattr(self.dashboard, "dismiss_floating_callout", None)
+        if callable(dismiss):
+            dismiss()
 
     def _restart_application(self) -> None:
         """Start the updated copy the way this one was started, then leave.
@@ -1307,8 +1328,9 @@ class ControlCenterWindow(QMainWindow):
         else:
             self.gamepad.stop()
 
-    def _workflow_finished(self, _result: object, _code: int) -> None:
+    def _workflow_finished(self, result: object, code: int) -> None:
         """A terminal workflow ended: whatever it installed or removed is real now."""
+        record_terminal_failure(result, code)
         invalidate = getattr(self.controller, "invalidar_estado_herramientas", None)
         if callable(invalidate):
             try:
@@ -1321,6 +1343,59 @@ class ControlCenterWindow(QMainWindow):
         refresh = getattr(page, "refresh", None)
         if page is not self.dashboard and callable(refresh):
             refresh()
+
+    #: Links an accessory card opens, and its program's name in dialogs.
+    _ACCESSORY_LINKS = {
+        "thermalright": ("https://github.com/Lexonight1/thermalright-trcc-linux", "TRCC Linux"),
+        "corsair": ("https://github.com/jurkovic-nikola/OpenLinkHub", "OpenLinkHub"),
+    }
+
+    def _dashboard_accessory(self, accessory: str, operation: str) -> None:
+        """A case accessory card: install, remove, configure or read about it."""
+        from .components.page_widgets import ConfirmDialog
+        from .core.external_links import open_external_url
+
+        if accessory not in self._ACCESSORY_LINKS:
+            return
+        upstream, program = self._ACCESSORY_LINKS[accessory]
+        try:
+            if operation == "upstream":
+                open_external_url(upstream)
+            elif operation == "configure" and accessory == "corsair":
+                from bc250cc.infrastructure.accessories.openlinkhub import PANEL_URL
+
+                open_external_url(PANEL_URL)
+            elif operation == "configure":
+                from PyQt6.QtCore import QProcess
+
+                argv = self.controller.accessory_configure_argv(accessory)
+                if not QProcess.startDetached(argv[0], argv[1:]):
+                    raise RuntimeError(tr_format("{program} could not be started.", program=program))
+            elif operation == "install":
+                self.controller.manage_accessory(accessory, "install")
+            elif operation == "remove":
+                # Removing takes the program away; the owner's own themes and
+                # profiles stay, which the dialog says.
+                dialog = ConfirmDialog(
+                    tr_format("Remove {program}?", program=program),
+                    "The program and the service Control Center set up for it are removed. "
+                    "Your own themes and profiles are kept.",
+                    confirm_text="Remove",
+                    tone="orange",
+                    parent=self,
+                )
+                if dialog.exec() == dialog.DialogCode.Accepted:
+                    self.controller.manage_accessory(accessory, "remove")
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as error:
+            InfoDialog(
+                "Support unavailable",
+                str(error),
+                icon_name="warning_orange",
+                parent=self,
+                eyebrow="Hardware",
+                notice="No changes were made.",
+                tone="orange",
+            ).open()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API name
         gamepad = getattr(self, "gamepad", None)
@@ -1500,12 +1575,20 @@ class ControlCenterWindow(QMainWindow):
             )
         elif options["action"] == "vram_apply":
             options.update(vram_uma_size_mb=int(payload.get("vram_uma_size_mb") or 0))
+        elif options["action"] == "kernel_options_set":
+            options.update(
+                kernel_options=tuple(str(item) for item in payload.get("kernel_options") or ()),
+                kernel_option_changed=str(payload.get("kernel_option_changed") or ""),
+            )
         self.gpu_page.execute_dependency_action(
             **options,
         )
 
     def _dashboard_driver_support(self, component: str) -> None:
         """Launch a reviewed distribution-native support route from Dashboard."""
+        if ":" in component:
+            self._dashboard_accessory(*component.split(":", 1))
+            return
         if component not in {"connectivity", "printing"}:
             return
         try:

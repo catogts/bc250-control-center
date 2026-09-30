@@ -49,6 +49,19 @@ sudo apt install ./bc250-control-center_*.deb
 
 无需再回到本页。新版本发布时，仪表板会提示你、显示更新内容，并在校验 SHA-256 后用系统的包管理器安装。
 
+在 SteamOS 上，更新会先关闭只读保护，安装后再重新开启。SteamOS 系统更新会删除安装到系统中的所有内容，包括本应用：请在桌面模式菜单中打开 **Reinstall BC250 Control Center**，然后重新准备依赖项。SteamOS 会要求输入 `deck` 的密码；如果从未设置过，请先在 Konsole 中运行 `passwd`。
+
+**从 1.19 升级？** 1.19 内置的更新程序无法安装软件包。请用[最新版本](https://github.com/movacx/bc250-control-center/releases/latest)的软件包手动更新一次，之后应用会自行更新。在 Bazzite 上一步替换 1.19 并重启；如果使用 install-local.sh 安装，请先移除那份副本：
+
+```bash
+# Bazzite / Fedora Atomic
+sudo rpm-ostree uninstall bc250-control-center --install ./bc250-control-center-*.noarch.rpm
+systemctl reboot
+
+# install-local.sh
+bash scripts/uninstall-local.sh
+```
+
 ## 首次启动
 
 1. 打开 **BC250 Control Center**。

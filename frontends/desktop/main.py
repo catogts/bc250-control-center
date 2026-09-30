@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QApplication
 
 from bc250cc.application import ApplicationContainer
 from bc250cc.infrastructure.polkit_session import ensure_graphical_polkit_agent
+from bc250cc.infrastructure.steamos_rescue import ensure_steamos_rescue
 from bc250cc.infrastructure.terminal_plan import set_translator
 from bc250cc.shared.logging_config import configure_logging
 from frontends.desktop import ControlCenterWindow
@@ -51,6 +52,9 @@ def main() -> int:
     # opening Monitoring should show the last two minutes, not an empty graph.
     # Deferred so the first sample does not compete with the first paint.
     QTimer.singleShot(PERFORMANCE_RECORDING_DELAY_MS, window.performance_page.start_recording)
+    # On SteamOS, keep a reinstaller in /home: the next OS update removes this
+    # application from the root filesystem, and /home is all it leaves.
+    QTimer.singleShot(PERFORMANCE_RECORDING_DELAY_MS, ensure_steamos_rescue)
     return app.exec()
 
 

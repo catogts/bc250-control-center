@@ -20,6 +20,7 @@ cleanup_nct_source_stage() {
 trap cleanup_nct_source_stage EXIT
 
 bold "${BC250_OS_LABEL:-Arch family}: preparing nct6687 PWM driver"
+if bc250_nct6687_already_usable "$KERNEL_RELEASE"; then exit 0; fi
 bc250_kernel_headers_preflight "$KERNEL_RELEASE" || true
 ensure_arch_build_toolchain
 as_root pacman -S --needed --noconfirm lm_sensors dkms kmod

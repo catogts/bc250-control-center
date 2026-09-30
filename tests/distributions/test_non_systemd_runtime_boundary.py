@@ -6,13 +6,11 @@ from bc250cc.infrastructure import (
     cpu_repository,
     cu_repository,
     gpu_repository,
-    health_repository,
     sistema_repository,
 )
 from bc250cc.infrastructure.cpu_repository import CPURepository
 from bc250cc.infrastructure.cu_repository import CURepository
 from bc250cc.infrastructure.gpu_repository import GPURepository
-from bc250cc.infrastructure.health_repository import HealthRepository
 from bc250cc.infrastructure.sistema_repository import SistemaRepository
 from bc250cc.platform.init.services import InitManagerState
 from bc250cc.platform.packages.strategies.detector import detect_os_info
@@ -85,22 +83,6 @@ def test_gpu_service_properties_do_not_call_systemctl_on_detected_only_init(monk
     assert SistemaRepository._service_prop(
         Repository(), "cyan-skillfish-governor-smu.service", "ActiveState"
     ) == ""
-
-
-def test_health_reports_persistence_as_unsupported_without_systemctl(monkeypatch):
-    monkeypatch.setattr(health_repository, "detect_init_manager", lambda: RUNIT)
-
-    class Repository(HealthRepository):
-        def _ejecutar(self, *_args, **_kwargs):
-            raise AssertionError("health must not call systemctl on runit")
-
-    item = Repository()._service_health(
-        "bc250-cu-live-manager.service", optional=True
-    )
-
-    assert item["status"] == "healthy"
-    assert item["data"]["init_manager"] == "runit"
-    assert item["data"]["persistence_supported"] is False
 
 
 def test_cyan_dbus_runtime_is_read_without_service_persistence(monkeypatch):

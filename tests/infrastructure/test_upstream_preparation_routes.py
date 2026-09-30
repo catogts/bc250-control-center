@@ -45,7 +45,7 @@ def _repository_for(
     (
         ("kernel", "linux-cachyos-bc250 linux-cachyos-bc250-headers", "kernel"),
         ("mesa", "Installing stable BC-250 patched Mesa", "Mesa"),
-        ("full", "Installing stable BC-250 patched Mesa", "kernel y Mesa"),
+        ("full", "Installing stable BC-250 patched Mesa", "kernel and Mesa"),
     ),
 )
 def test_cachyos_routes_open_only_the_requested_reviewed_transaction(
@@ -118,7 +118,7 @@ def test_bazzite_mitigations_route_opens_a_reversible_transaction():
     command, title = calls[0]
     assert "--append-if-missing=mitigations=off" in command
     assert "No automatic reboot was performed" in command
-    assert "mitigaciones de CPU" in title
+    assert "CPU mitigations" in title
 
 
 def test_bazzite_mitigations_route_is_blocked_on_other_distributions():
