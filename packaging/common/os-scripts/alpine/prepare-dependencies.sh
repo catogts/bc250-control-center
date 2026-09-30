@@ -13,7 +13,7 @@ runtime_packages=(
   zstd dbus dbus-openrc busctl jq build-base linux-headers
 )
 
-apk_install() { as_root apk add --no-progress "$@"; }
+apk_install() { as_root apk add "$@"; }
 
 install_runtime() {
   bold "${BC250_OS_LABEL:-Alpine Linux}: installing BC250 runtime dependencies"

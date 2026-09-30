@@ -109,7 +109,10 @@ install_umr() {
     bold "Building UMR from source"
     warn "This optional step installs a large compiler toolchain (including LLVM) and can take several minutes."
     info "APT and the compiler will keep printing progress below; leave this terminal open."
-    as_root "${BC250_CU_MANAGER_SCRIPT}" install-umr
+    # The upstream installer runs a plain "cmake --build", which compiles on
+    # one core. sudo resets the environment, so the level is passed via env.
+    export_parallel_build_env
+    as_root env CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL" "${BC250_CU_MANAGER_SCRIPT}" install-umr
   fi
   hash -r
   verify_command umr

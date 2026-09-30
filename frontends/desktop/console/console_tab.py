@@ -265,6 +265,7 @@ class ConsoleTab(QWidget):
             # there. Only the user's shell asks for one.
             cwd=cwd,
             environment=environment,
+            log_file=None if self.interactive else (self.log_file or None),
         )
         if not started:
             session.deleteLater()

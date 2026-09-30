@@ -315,3 +315,37 @@ def test_a_collector_that_stopped_mid_operation_is_reported_as_interrupted(
     monkeypatch.setattr(module, "leer_memoria_telemetria", lambda: {"state": published, "chips": []})
 
     assert Gddr6MemoryTempRepository()._external_memory_telemetry()["state"] == expected
+
+
+def test_prepare_command_drops_group_write_from_the_checkout(tmp_path):
+    repository = FakeRepository(tmp_path)
+
+    command, _title = repository.comando_preparar_gddr6_memory_temp()
+
+    assert "go-w" in command
+    assert ";;" not in command
+
+
+def test_a_group_writable_checkout_is_secured_before_the_helper_runs(tmp_path):
+    # A 0002 umask (Ubuntu, Debian, Mint) leaves a fresh clone group-writable,
+    # and the reader refuses bc250_smu for it before touching the SMU.
+    destination = tmp_path / GDDR6_MEMORY_TEMP_DIRECTORY
+    package = destination / "bc250_smu"
+    package.mkdir(parents=True)
+    (destination / ".git").mkdir()
+    module = package / "api.py"
+    module.write_text("pass\n", encoding="utf-8")
+    script = destination / "patch_smu.py"
+    script.write_text("pass\n", encoding="utf-8")
+    for path, mode in ((destination, 0o775), (package, 0o775), (module, 0o664), (script, 0o775)):
+        path.chmod(mode)
+    repository = FakeRepository(
+        tmp_path, responses=_clean_repo_responses(destination), reader_path=READER
+    )
+
+    repository.comando_leer_temperatura_vram()
+
+    assert package.stat().st_mode & 0o777 == 0o755
+    assert module.stat().st_mode & 0o777 == 0o644
+    assert script.stat().st_mode & 0o777 == 0o755
+    assert destination.stat().st_mode & 0o777 == 0o755

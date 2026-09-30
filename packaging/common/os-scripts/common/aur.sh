@@ -38,6 +38,7 @@ ensure_aur_helper() {
   fi
 
   require_user_build
+  export_parallel_build_env
   bold "Building yay from the official AUR package"
   local yay_dir="${XDG_CACHE_HOME:-$HOME/.cache}/bc250-control-center/aur/yay"
   clone_or_update https://aur.archlinux.org/yay.git "$yay_dir"
@@ -54,6 +55,7 @@ install_aur_package_direct() {
   local package="$1"
   ensure_arch_build_toolchain
   require_user_build
+  export_parallel_build_env
   local package_dir="${XDG_CACHE_HOME:-$HOME/.cache}/bc250-control-center/aur/$package"
   clone_or_update "https://aur.archlinux.org/${package}.git" "$package_dir"
   (
@@ -67,6 +69,7 @@ install_aur_package() {
   ensure_aur_helper
   if [[ -n "$AUR_HELPER" && -x "$AUR_HELPER" ]]; then
     bold "Installing AUR package: $package"
+    export_parallel_build_env
     local -a helper_args=(-S --needed --noconfirm)
     # --answerclean/--answerdiff are yay options. Passing them to paru makes a
     # valid CachyOS installation fail before package resolution starts.

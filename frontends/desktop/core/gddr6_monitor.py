@@ -105,6 +105,15 @@ def firmware_blocker(bios_version: str) -> str:
     return f"{reason} {tr('The P3.00, Chipset Menu and MeiMeiDXE images on the Firmware page all qualify.')}"
 
 
+def _helper_error_line(error: str) -> str:
+    """The helper's own "ERROR: ..." line, without the prefix, else the text."""
+    lines = [line.strip() for line in str(error or "").splitlines() if line.strip()]
+    for line in reversed(lines):
+        if line.startswith("ERROR:"):
+            return line.removeprefix("ERROR:").strip()
+    return lines[-1] if lines else ""
+
+
 def _dict(value: Any) -> dict:
     if hasattr(value, "to_dict"):
         value = value.to_dict()
@@ -266,6 +275,10 @@ class Gddr6Reading:
         for code, message in _SESSION_ERRORS:
             if code in self.error:
                 return message
+        if self.error:
+            # A failure without a friendlier wording is still the answer: an
+            # empty strip under a button that went back to off says nothing.
+            return _helper_error_line(self.error)
         return "" if self.can_monitor else self.blocker()
 
 

@@ -65,25 +65,38 @@ class PreparationContext:
     already_present: frozenset[str] = frozenset()
 
 
-def secure_cpu_checkout_command(destination: Path) -> str:
+def secure_checkout_command(destination: Path, label: str, exit_code: int) -> str:
+    """Drop group/other write from a reviewed checkout that root will load.
+
+    A desktop umask of 0002 (the default on Ubuntu, Debian and Mint, where
+    every user has a private group) leaves a fresh clone group-writable, and
+    the privileged helpers rightly refuse group-writable code. Directories
+    count too: the GDDR6 reader checks the bc250_smu package directory itself.
+    """
     qdestination = shlex.quote(str(destination))
     return (
         f'chmod u+rwx,go+rx,go-w {qdestination}; '
         f'if [ -d {qdestination}/.git ]; then '
-        'while IFS= read -r -d "" bc250_cpu_file; do '
-        f'  bc250_cpu_path={qdestination}/$bc250_cpu_file; '
-        '  [ -e "$bc250_cpu_path" ] || continue; '
-        '  [ ! -L "$bc250_cpu_path" ] || '
-        '  { echo "ERROR: reviewed bc250_smu_oc file is a symbolic link: $bc250_cpu_file"; exit 30; }; '
-        '  [ -O "$bc250_cpu_path" ] || '
-        '  { echo "ERROR: reviewed bc250_smu_oc file is not owned by the desktop user: $bc250_cpu_file"; exit 30; }; '
-        '  chmod u+rwX,go+rX,go-w "$bc250_cpu_path"; '
+        'while IFS= read -r -d "" bc250_checkout_file; do '
+        f'  bc250_checkout_path={qdestination}/$bc250_checkout_file; '
+        '  [ -e "$bc250_checkout_path" ] || continue; '
+        '  [ ! -L "$bc250_checkout_path" ] || '
+        f'  {{ echo "ERROR: reviewed {label} file is a symbolic link: $bc250_checkout_file"; exit {exit_code}; }}; '
+        '  [ -O "$bc250_checkout_path" ] || '
+        f'  {{ echo "ERROR: reviewed {label} file is not owned by the desktop user: $bc250_checkout_file"; exit {exit_code}; }}; '
+        '  chmod u+rwX,go+rX,go-w "$bc250_checkout_path"; '
         f'done < <(git -C {qdestination} ls-files -z); '
+        f'find {qdestination} -xdev -path {qdestination}/.git -prune -o '
+        '-type d -user "$(id -u)" -exec chmod go-w {} +; '
         'else '
         f'find {qdestination} -xdev -user "$(id -u)" '
         '-exec chmod u+rwX,go+rX,go-w {} +; '
         'fi'
     )
+
+
+def secure_cpu_checkout_command(destination: Path) -> str:
+    return secure_checkout_command(destination, 'bc250_smu_oc', 30)
 
 
 def _immutable_commands(context: PreparationContext) -> list[str]:
@@ -244,7 +257,11 @@ def _mutable_source_commands(context: PreparationContext) -> list[str]:
             f'test -d {shlex.quote(str(context.gddr6_destination / ".git"))} || '
             '{ echo "ERROR: bc250-memory-temperature is not a Git clone"; exit 37; }',
             # The privileged reader imports this package directly, and refuses
-            # it unless every file belongs to the desktop user.
+            # it unless every file belongs to the desktop user and is not
+            # group-writable.
+            secure_checkout_command(
+                context.gddr6_destination, 'bc250-memory-temperature', 37
+            ),
             f'test -d {shlex.quote(str(context.gddr6_destination / "bc250_smu"))} || '
             '{ echo "ERROR: the reviewed bc250_smu package is missing"; exit 37; }',
             f'test -f {shlex.quote(str(context.gddr6_destination / "SMUPayload.bin"))} || '

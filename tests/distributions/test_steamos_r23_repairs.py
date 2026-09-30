@@ -131,7 +131,7 @@ def test_terminal_workflows_are_automatically_tee_logged():
     repository = Path('src/bc250cc/infrastructure/terminal_repository.py').read_text(encoding='utf-8')
     planner = Path('src/bc250cc/infrastructure/terminal_plan.py').read_text(encoding='utf-8')
     assert 'workflow-{run_id}.log' in repository
-    assert 'workflow_wrapper(comando, status_path, log_path, hold=hold)' in repository
+    assert 'comando, status_path, log_path, hold=hold, host_logs=host_logs' in repository
     assert '2>&1 | tee {log}' in planner
     assert 'status=$?' in planner
     assert 'PIPESTATUS' not in planner

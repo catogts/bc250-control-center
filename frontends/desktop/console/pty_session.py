@@ -25,6 +25,8 @@ from collections.abc import Mapping, Sequence
 
 from PyQt6.QtCore import QObject, QSocketNotifier, QTimer, pyqtSignal
 
+from bc250cc.infrastructure.terminal_transcript import TranscriptLog
+
 logger = logging.getLogger(__name__)
 
 # One read per notification is enough for interactive output, but an installer
@@ -71,6 +73,7 @@ class PtySession(QObject):
         self._closing = False
         self._masked = False
         self._echo_watch: QTimer | None = None
+        self._transcript: TranscriptLog | None = None
 
     # ----------------------------------------------------------------- status
 
@@ -121,8 +124,14 @@ class PtySession(QObject):
         rows: int = 24,
         cwd: str | None = None,
         environment: Mapping[str, str] | None = None,
+        log_file: str | None = None,
     ) -> bool:
-        """Fork the child onto a new pty. Returns False and reports why on error."""
+        """Fork the child onto a new pty. Returns False and reports why on error.
+
+        ``log_file`` receives the readable text of everything the child
+        prints. The session writes it, not a ``tee`` in the workflow, so the
+        child keeps the terminal as its stdout; see ``transcript_log``.
+        """
         if self.running:
             raise RuntimeError("This terminal session is already running a command.")
         command = [str(part) for part in argv if part is not None]
@@ -181,6 +190,7 @@ class PtySession(QObject):
             )
 
         os.close(slave)
+        self._transcript = TranscriptLog(log_file) if log_file else None
         self._master = master
         self._pid = pid
         self._exit_code = None
@@ -281,7 +291,14 @@ class PtySession(QObject):
             if not data:
                 self._on_hangup()
                 return
+            self._record(data)
             self.output.emit(data)
+
+    def _record(self, data: bytes) -> None:
+        # Logged before it is shown: a workflow waiting on the log sync
+        # marker must find everything it printed before asking.
+        if self._transcript is not None:
+            self._transcript.write(data)
 
     def _on_hangup(self) -> None:
         if self._notifier is not None:
@@ -428,6 +445,7 @@ class PtySession(QObject):
                 return
             if not data:
                 return
+            self._record(data)
             self.output.emit(data)
 
     def close(self) -> None:
@@ -442,6 +460,9 @@ class PtySession(QObject):
             except OSError:
                 pass
             self._master = None
+        if self._transcript is not None:
+            self._transcript.close()
+            self._transcript = None
 
     def shutdown(self) -> None:
         """Stop a running workflow and release everything, for window close."""

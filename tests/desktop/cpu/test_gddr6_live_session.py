@@ -170,3 +170,28 @@ def test_the_helper_contract_is_one_json_object_per_line():
 
     assert json.loads(line)["chips"][0]["temperature_c"] == 58.0
     assert "\n" not in line
+
+
+class FailingSessionController(SessionController):
+    """A helper that refuses before sampling, with no friendlier wording."""
+
+    def comando_monitorizar_vram(self, seconds=LIVE_SESSION_SECONDS):
+        script = (
+            "import sys\n"
+            "print('ERROR: bc250_smu package files must belong to the desktop user "
+            "and not be writable by group or others.', file=sys.stderr)\n"
+            "sys.exit(1)\n"
+        )
+        return [sys.executable, "-c", script]
+
+
+def test_an_unrecognised_helper_failure_is_shown_not_swallowed(qtbot):
+    monitor = _monitor(qtbot, FailingSessionController())
+
+    monitor.start_live()
+    qtbot.waitUntil(lambda: not monitor.reading.live, timeout=8000)
+
+    assert monitor.reading.notice() == (
+        "bc250_smu package files must belong to the desktop user "
+        "and not be writable by group or others."
+    )

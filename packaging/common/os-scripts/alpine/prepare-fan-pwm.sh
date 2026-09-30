@@ -10,7 +10,7 @@ bc250_install_fan_build_prerequisites() {
     error "Alpine packages akms, not DKMS; the nct6687d PWM driver workflow needs DKMS and is unavailable here."
     exit 69
   fi
-  as_root apk add --no-progress build-base linux-headers kmod lm_sensors git
+  as_root apk add build-base linux-headers kmod lm_sensors git
 }
 # shellcheck source=../common/prepare-fan-pwm-dkms.sh
 source "$SCRIPT_DIR/../common/prepare-fan-pwm-dkms.sh"

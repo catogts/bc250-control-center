@@ -15,6 +15,11 @@ from pathlib import Path
 
 from bc250cc.shared import error_catalog
 
+from .terminal_transcript import LOG_SYNC_OSC, log_sync_path
+
+# Executed with python3 by the terminal-emulator wrapper; see run_logged.
+_TRANSCRIPT_RUNNER = Path(__file__).resolve().with_name("terminal_transcript.py")
+
 _CODES_WITH_MARKERS = tuple(
     entry for entry in error_catalog.all_codes()
     if entry.markers and entry.code != "BC250-PROTOCOL-001"
@@ -24,6 +29,9 @@ _CODES_WITH_MARKERS = tuple(
 # A plain ASCII rule so it renders identically in every terminal emulator,
 # including minimal consoles without box-drawing glyphs.
 _RULE = "=" * 74
+
+_LOG_SYNC_WAIT_TICKS = 50  # of 0.1 s: only a console that is not reading waits this long
+
 
 # Used when the workflow printed its own [ERROR] explanation: the failure is
 # real and described, but no catalog rule was consulted, so claiming a
@@ -203,6 +211,7 @@ def workflow_wrapper(
     translate=None,
     *,
     hold: bool = True,
+    host_logs: bool = False,
 ) -> str:
     """Wrap a workflow so it logs, records its exit status, and reports it.
 
@@ -211,6 +220,17 @@ def workflow_wrapper(
     the result with it, so the prompt is what makes the output readable there.
     The embedded console does not close on its own, so it passes ``hold=False``
     and leaves the panel showing the same summary without a key press.
+
+    ``host_logs`` is for the embedded console, which writes the log from the
+    pty itself. The workflow then runs with the terminal as its stdout instead
+    of a ``tee`` pipe: behind a pipe git hides its progress, APT and cargo
+    drop their progress bars and make buffers its output, so a long build sat
+    on one frozen line. Before the log is read back the wrapper waits for the
+    console to confirm it has written everything printed so far.
+
+    Without it (a terminal emulator) the same holds: the workflow runs under
+    ``terminal_transcript.py``, which gives it a pty and writes the log. Only
+    if that runner cannot start does the wrapper fall back to ``tee``.
     """
     translate = translate if callable(translate) else _TRANSLATOR
     requested = str(command or "").strip()
@@ -226,9 +246,30 @@ def workflow_wrapper(
     share_hint = translate("You can share that .log file if something failed.")
     close_hint = translate("Enter to close...")
     closing = f'read -r -p "{close_hint}" _; ' if hold else ""
+    if host_logs:
+        sync = shlex.quote(str(log_sync_path(log_path)))
+        run = f"bash -lc {inner}; status=$?; "
+        # Wait for the console to have logged everything printed so far.
+        wait_for_log = (
+            f"rm -f {sync}; printf '\\033]{LOG_SYNC_OSC}\\007'; "
+            f"_bc250_tick=0; while [ ! -e {sync} ] && [ $_bc250_tick -lt {_LOG_SYNC_WAIT_TICKS} ]; "
+            "do sleep 0.1; _bc250_tick=$((_bc250_tick + 1)); done; "
+            f"rm -f {sync}; "
+        )
+        summary_sink = ""
+    else:
+        runner = shlex.quote(str(_TRANSCRIPT_RUNNER))
+        # Chosen before anything runs, so the workflow can never run twice.
+        run = (
+            f"if command -v python3 >/dev/null 2>&1 && [ -r {runner} ]; then "
+            f"python3 {runner} {log} -- bash -lc {inner}; "
+            f"else bash -o pipefail -c {pipeline}; fi; status=$?; "
+        )
+        wait_for_log = ""
+        summary_sink = f"2>&1 | tee -a {log}"
     return (
-        f"bash -o pipefail -c {pipeline}; "
-        "status=$?; "
+        f"{run}"
+        f"{wait_for_log}"
         f"printf '%s\\n' \"$status\" > {status}; "
         f"{_evidence_capture_shell(log_path)}; "
         "{ echo; "
@@ -241,7 +282,7 @@ def workflow_wrapper(
         f"{_evidence_render_shell(translate)}; "
         f"echo \"{saved_log}: {log_path!s}\"; "
         f"echo \"{share_hint}\"; }} "
-        f"2>&1 | tee -a {log}; "
+        f"{summary_sink}; "
         f"{closing}exit \"$status\""
     )
 

@@ -21,6 +21,7 @@ from bc250cc.infrastructure.external_tools.catalog import EXTERNAL_TOOLS
 from bc250cc.infrastructure.gddr6_memory_temp_trust import REVIEWED_REVISION
 from bc250cc.infrastructure.hardware_identity import is_bc250_platform
 from bc250cc.infrastructure.polkit_session import pkexec_argv
+from bc250cc.infrastructure.preparation_workflow import secure_checkout_command
 from bc250cc.infrastructure.vrm_telemetry_reader import leer_memoria_telemetria
 
 GDDR6_MEMORY_TEMP_REPOSITORY = EXTERNAL_TOOLS["gddr6_memory_temp"].upstream
@@ -195,10 +196,39 @@ class Gddr6MemoryTempRepository:
     def comando_preparar_gddr6_memory_temp(self):
         """Clone/update the reviewed checkout in the embedded terminal panel."""
         repository = self._gddr6_temp_repository()
-        command = self._hardware_source_checkout_command(
+        checkout = self._hardware_source_checkout_command(
             GDDR6_MEMORY_TEMP_REPOSITORY, repository
         )
+        command = '; '.join((
+            'set -Eeuo pipefail',
+            str(checkout).rstrip().rstrip(';'),
+            secure_checkout_command(repository, GDDR6_MEMORY_TEMP_DIRECTORY, 37),
+        ))
         return self._abrir_terminal(command, 'BC250 GDDR6 memory temperature')
+
+    def _secure_gddr6_checkout(self, repository):
+        """Drop group/other write from the files the helpers refuse otherwise.
+
+        Checkouts made under a 0002 umask (Ubuntu, Debian, Mint) are
+        group-writable, and the reader rejects the whole bc250_smu package
+        for it before touching the SMU. The desktop user owns these files, so
+        this fixes an existing clone without a new prepare run or a prompt.
+        Mode bits outside the executable bit are invisible to git, so the
+        clone still validates as clean afterwards.
+        """
+        package = repository / 'bc250_smu'
+        paths = [repository, repository / 'patch_smu.py', repository / 'SMUPayload.bin']
+        if package.is_dir() and not package.is_symlink():
+            paths.extend((package, *package.rglob('*.py')))
+        uid = os.getuid()
+        for path in paths:
+            try:
+                metadata = path.stat(follow_symlinks=False)
+                if path.is_symlink() or metadata.st_uid != uid or not metadata.st_mode & 0o022:
+                    continue
+                path.chmod(metadata.st_mode & 0o7755)
+            except OSError:
+                continue
 
     def _gddr6_temp_pkexec_command(self, action, *, helper):
         if not helper:
@@ -222,6 +252,7 @@ class Gddr6MemoryTempRepository:
                 'The official bc250-memory-temperature clone did not pass origin, '
                 'revision, and integrity validation.'
             )
+        self._secure_gddr6_checkout(repository)
         return pkexec_argv('pkexec', helper, '--repo', str(repository), '--action', action)
 
     def comando_estado_smu_vram(self):

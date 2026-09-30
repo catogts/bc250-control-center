@@ -269,5 +269,9 @@ def test_the_workflow_script_the_panel_runs_is_the_reviewed_one(qtbot, host, tmp
     assert seen[0].argv[0] == "bash"
     script = open(seen[0].argv[1]).read()
     assert "echo revisado" in script
-    assert "tee" in script
+    # The console writes the log from the pty; a tee pipe would hide the
+    # workflow's progress (see test_transcript_log).
+    assert "tee" not in script
+    assert "bc250-log-sync" in script
+    assert seen[0].log_file
     assert os.stat(seen[0].argv[1]).st_mode & 0o777 == 0o700

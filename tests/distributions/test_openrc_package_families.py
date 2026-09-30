@@ -62,7 +62,7 @@ def test_alpine_asks_apk_only_for_packages_alpine_ships():
 
     runtime = dependencies.split("runtime_packages=(", 1)[1].split(")", 1)[0].split()
     assert "dkms" not in runtime
-    assert "apk add --no-progress build-base linux-headers" in fan_pwm
+    assert "apk add build-base linux-headers" in fan_pwm
     assert "dkms linux-headers" not in fan_pwm
     assert "if ! have dkms; then" in fan_pwm
 

@@ -56,6 +56,18 @@ as_root() {
   fi
 }
 
+# Source builds default to one compile job: a plain "cmake --build" with the
+# Makefile generator, and makepkg unless makepkg.conf sets MAKEFLAGS. Values
+# the user already set (environment or makepkg.conf) win. Callers that go
+# through sudo pass CMAKE_BUILD_PARALLEL_LEVEL explicitly, since sudo resets
+# the environment.
+export_parallel_build_env() {
+  BC250_BUILD_JOBS="$(nproc 2>/dev/null || echo 2)"
+  export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-$BC250_BUILD_JOBS}"
+  export MAKEFLAGS="${MAKEFLAGS:--j$BC250_BUILD_JOBS}"
+  info "Compiling with $CMAKE_BUILD_PARALLEL_LEVEL parallel jobs"
+}
+
 require_user_build() {
   if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
     error "AUR/makepkg builds must run as a regular user, not root. Start BC250 Control Center from your desktop session."

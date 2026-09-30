@@ -162,9 +162,12 @@ class TerminalRepository:
 
     @staticmethod
     def _write_launch_script(
-        path: Path, comando, status_path: Path, log_path: Path, *, hold: bool
+        path: Path, comando, status_path: Path, log_path: Path, *, hold: bool,
+        host_logs: bool = False,
     ) -> Path:
-        wrapped = workflow_wrapper(comando, status_path, log_path, hold=hold)
+        wrapped = workflow_wrapper(
+            comando, status_path, log_path, hold=hold, host_logs=host_logs
+        )
         path.write_text("#!/usr/bin/env bash\n" + wrapped + "\n", encoding="utf-8")
         path.chmod(0o700)
         return path
@@ -178,7 +181,11 @@ class TerminalRepository:
         if launcher is None:
             return None
         launch_path = self._write_launch_script(
-            state_dir / f"embedded-{run_id}.sh", comando, status_path, log_path, hold=False
+            state_dir / f"embedded-{run_id}.sh", comando, status_path, log_path,
+            hold=False,
+            # The console writes the log from the pty, so the workflow keeps
+            # the terminal as its stdout and draws its real progress.
+            host_logs=True,
         )
         request = EmbeddedTerminalRequest(
             argv=("bash", str(launch_path)),
