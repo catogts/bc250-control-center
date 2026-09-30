@@ -93,6 +93,10 @@ def _look_for_update() -> _UpdateLookup:
 
 CONTACT_URL = "https://discord.com/channels/1315924807128449065/1526169299490836510"
 SUPPORT_URL = "https://ko-fi.com/movacx"
+REPORT_URL = (
+    "https://docs.google.com/forms/d/e/"
+    "1FAIpQLSe3M1stf3bpCoorb4hCWFX9YC_TZ_Gv6WHWQDRe1AV5rJT6rA/viewform"
+)
 
 
 class DashboardPage(QWidget):
@@ -287,10 +291,12 @@ class DashboardPage(QWidget):
             lambda: self.action_requested.emit("repositories")
         )
         self.footer.contact_clicked.connect(self._open_contact)
+        self.footer.report_clicked.connect(self._open_report)
         self.footer.support_clicked.connect(self._open_support)
         self.footer.update_clicked.connect(self._badge_clicked)
         self.readiness.set_header_actions(self.footer)
         self.contact_button = self.footer.contact_button
+        self.report_button = self.footer.report_button
         self.support_button = self.footer.support_button
         self.update_button = self.footer.update_button
         # The only place this application reaches the network itself, so it is
@@ -629,6 +635,20 @@ class DashboardPage(QWidget):
             parent=self,
             eyebrow="CONTACT",
             notice=tr_format("Copy this address manually: {url}", url=CONTACT_URL),
+            tone="orange",
+        ).exec()
+
+    def _open_report(self) -> None:
+        opened, message = open_external_url(REPORT_URL)
+        if opened:
+            return
+        InfoDialog(
+            "Report form could not be opened",
+            message,
+            icon_name="warning_orange",
+            parent=self,
+            eyebrow="CONTACT",
+            notice=tr_format("Copy this address manually: {url}", url=REPORT_URL),
             tone="orange",
         ).exec()
 

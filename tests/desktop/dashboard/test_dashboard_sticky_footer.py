@@ -5,7 +5,12 @@ from PyQt6.QtGui import QImage
 import frontends.desktop.pages.dashboard as dashboard_module
 from frontends.desktop.components.widgets import ICON_DIR
 from frontends.desktop.i18n import localize_widget_tree, set_language, tr
-from frontends.desktop.pages.dashboard import CONTACT_URL, SUPPORT_URL, DashboardPage
+from frontends.desktop.pages.dashboard import (
+    CONTACT_URL,
+    REPORT_URL,
+    SUPPORT_URL,
+    DashboardPage,
+)
 from frontends.desktop.theme import application_stylesheet
 
 
@@ -51,7 +56,8 @@ def test_sticky_buttons_keep_routes_translations_and_keyboard_activation(qtbot, 
             localize_widget_tree(page, language)
             for button, label in (
                 (page.support_button, "Buy me a coffee"),
-                (page.contact_button, "Report a problem / Contact"),
+                (page.contact_button, "BC250 community on Discord"),
+                (page.report_button, "Report a problem or suggest an idea"),
                 (page.footer.repositories_button, "Official repositories"),
             ):
                 assert button.text() == ""
@@ -60,7 +66,8 @@ def test_sticky_buttons_keep_routes_translations_and_keyboard_activation(qtbot, 
         page.support_button.setFocus()
         qtbot.keyClick(page.support_button, Qt.Key.Key_Space)
         page.contact_button.click()
-        assert opened == [SUPPORT_URL, CONTACT_URL]
+        page.report_button.click()
+        assert opened == [SUPPORT_URL, CONTACT_URL, REPORT_URL]
     finally:
         set_language("en")
 
@@ -91,12 +98,17 @@ def test_header_actions_are_compact_and_scale_without_clipping(qtbot, scale, mod
         page.show()
         qtbot.wait(100)
         assert page.width() == 360
-        assert page.footer.width() < 180
+        # Four square links (the update badge stays hidden): 60 px each at most.
+        assert page.footer.width() < 240
         assert page.footer.height() < 70
         assert page.footer.repositories_button.geometry().right() < page.contact_button.x()
-        assert page.contact_button.y() == page.support_button.y()
-        assert page.contact_button.geometry().right() < page.support_button.x()
-        for button in (page.footer.repositories_button, page.contact_button, page.support_button):
+        assert page.contact_button.y() == page.report_button.y() == page.support_button.y()
+        assert page.contact_button.geometry().right() < page.report_button.x()
+        assert page.report_button.geometry().right() < page.support_button.x()
+        for button in (
+            page.footer.repositories_button, page.contact_button,
+            page.report_button, page.support_button,
+        ):
             assert abs(button.width() - button.height()) <= 2
             assert button.iconSize().width() == round(22 * scale / 100)
             assert button.iconSize().width() < button.width()

@@ -4026,6 +4026,7 @@ class DashboardFooter(QWidget):
     """Compact external links embedded in the preparation header."""
 
     contact_clicked = pyqtSignal()
+    report_clicked = pyqtSignal()
     support_clicked = pyqtSignal()
     repositories_clicked = pyqtSignal()
     update_clicked = pyqtSignal()
@@ -4046,10 +4047,14 @@ class DashboardFooter(QWidget):
         self.repositories_button.setIcon(icon("github"))
         self.repositories_button.clicked.connect(self.repositories_clicked)
         self.layout.addWidget(self.repositories_button)
-        self.contact_button = _FooterActionButton("Report a problem / Contact")
+        self.contact_button = _FooterActionButton("BC250 community on Discord")
         self.contact_button.setIcon(icon("discord"))
         self.contact_button.clicked.connect(self.contact_clicked)
         self.layout.addWidget(self.contact_button)
+        self.report_button = _FooterActionButton("Report a problem or suggest an idea")
+        self.report_button.setIcon(icon("report_amber"))
+        self.report_button.clicked.connect(self.report_clicked)
+        self.layout.addWidget(self.report_button)
         self.support_button = _FooterActionButton("Buy me a coffee")
         self.support_button.setProperty("donation", True)
         # Official, bundled Ko-fi artwork: no network access needed by the UI.

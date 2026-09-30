@@ -68,7 +68,8 @@ def test_the_route_runs_in_the_order_the_modules_are_used(qtbot, window):
     """Dashboard first and whole, then each module, with settings last.
 
     The order is a product decision rather than an accident of the file, so it
-    is pinned: the readings and every preparation tab (memory in three parts),
+    is pinned: the readings and every preparation tab (memory in three parts), the
+    links row (GitHub, Discord, report form, Ko-fi) in one stop,
     the CPU profiles, pencil, Decky export, cores and hidden cores, the GPU
     service, profiles, export, range and voltage laboratory (opened), the
     compute-unit editor's first button and its grid, performance with its
@@ -77,7 +78,7 @@ def test_the_route_runs_in_the_order_the_modules_are_used(qtbot, window):
     """
     assert [stop.page for stop in tour_stops()] == [
         "dashboard", "dashboard", "dashboard", "dashboard", "dashboard",
-        "dashboard", "dashboard", "dashboard", "dashboard",
+        "dashboard", "dashboard", "dashboard", "dashboard", "dashboard",
         "cpu", "cpu", "cpu", "cpu", "cpu",
         "gpu", "gpu", "gpu", "gpu", "gpu", "gpu",
         "cu", "cu",

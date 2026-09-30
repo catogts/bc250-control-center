@@ -32,6 +32,11 @@
   </categories>
   <url type="homepage">https://github.com/movacx/bc250-control-center</url>
   <releases>
+    <release version="1.20.4" date="2026-09-30">
+      <description>
+        <p>Nueva sección Diagnóstico en Ajustes con tabla del sistema e historial de errores; accesorios de caja (pantalla Thermalright y ventiladores Corsair) en Controladores; avisos en el panel cuando algo instalado necesita atención; botón para reportar un problema o sugerir una idea. Correcciones en actualizaciones (Bazzite, instalaciones con script, ventana oculta), GPU governor, telemetría con 8 núcleos, firmware, preparación de dependencias y Ubuntu.</p>
+      </description>
+    </release>
     <release version="1.20.3" date="2026-09-28">
       <description>
         <p>SteamOS: "Preparar dependencias" instala la base de datos de UMR aunque el repositorio incluya alias por enlace simbólico; el parche de kernel acepta el kernel 6.18 de SteamOS; se oculta el paso FSR4 por juego de GFX1013 en favor del cliente OptiScaler FSR INT8.</p>

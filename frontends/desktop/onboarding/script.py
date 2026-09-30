@@ -344,6 +344,29 @@ def tour_stops() -> tuple[TourStop, ...]:
                 "the system cannot see it, this is the tab to try."
             ),
         ),
+        TourStop(
+            page="dashboard",
+            # One box round the four links: they are one row of ways out of
+            # the application, and a stop for each would say more than they do.
+            anchor=_together(
+                _attribute("dashboard", "footer", "repositories_button"),
+                _attribute("dashboard", "footer", "contact_button"),
+                _attribute("dashboard", "footer", "report_button"),
+                _attribute("dashboard", "footer", "support_button"),
+            ),
+            title=tr("Links: help, news and support"),
+            body=tr("Four buttons, each one opens a page in your browser:"),
+            points=(
+                tr("GitHub: the source code and every release."),
+                tr("Discord: the BC250 community, for questions and news."),
+                tr(
+                    "Report: a short form to report a problem or suggest an "
+                    "idea. No account needed."
+                ),
+                tr("Ko-fi: buy me a coffee if the app helped you. Nothing is locked."),
+            ),
+            footnote=tr("When a new version is out, one more button appears first in this row."),
+        ),
         # ------------------------------------------------------------- cpu
         TourStop(
             page="cpu",
