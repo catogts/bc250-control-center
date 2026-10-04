@@ -15,10 +15,10 @@ Open http://<device-ip>:8089 (token을 설정했으면 페이지 하단에 입�
 
 ## Endpoints
 
-- `GET /api/telemetry|system|components|profiles|quick-access|metrics`
+- `GET /api/telemetry|system|components|quick-access|metrics|fans`
   (인증: `X-Auth: <token>` 헤더 또는 `?token=`)
-- `GET /api/write` → 501 (의도적: 쓰기 미노출)
-- 캐시: telemetry 2s, profiles 5s, 그 외 30s
+- `POST /api/fan` → 팬 제어 (token + BC250_WEB_ENABLE_WRITE=1 + sudoers 룰)
+- 캐시: telemetry 2s, fans 3s, 그 외 30s
 
 ## systemd user unit (예시)
 
@@ -37,8 +37,27 @@ Open http://<device-ip>:8089 (token을 설정했으면 페이지 하단에 입�
     [Install]
     WantedBy=default.target
 
-## Phase 2 candidates
+## Phase 2: fan control (implemented, hardware-gated)
 
-- 제어 API: allow-list된 polkit action만 중개 (fan-pwm 프로파일 적용, CU 상태)
-- in-process `dispatch_safe` 호출로 CLI subprocess 대체 (불필요한 프로세스 생성 제거)
-- metrics 히스토리 그래프 (CLI `metrics --json` 활용)
+Plumbing is complete and verified end-to-end:
+`POST /api/fan {op:set|auto, channel:1..12, value:0..255}` -> token auth ->
+`sudo -n /usr/libexec/bc250-control-center/bc250-fan-pwm-helper` (exact-path
+NOPASSWD rule in `/etc/sudoers.d/bc250-web`) -> stdin session (`<ch> <val>`,
+`AUTO <ch>`, `EXIT`) -> typed helper validation (root-only, BC-250 identity,
+ranges, hardware lock). Writes also require `BC250_WEB_ENABLE_WRITE=1`.
+
+`GET /api/fans` reads nct668x sysfs directly (duty/enable/RPM/label), no root.
+
+Measured on the target device (Bazzite 43, in-tree sensor driver):
+fan writes are rejected by the helper itself with
+"PWM 1 manual-mode read-back was '99'" - the shipped nct6686 reports
+proprietary EC mode 99 and the in-tree driver does not support manual PWM.
+The desktop application installs the out-of-tree nct6687d driver during
+"Prepare dependencies"; until that is installed, fan control fails closed
+here too (verified: sysfs state stays untouched after a rejected write).
+
+## Phase 3 candidates
+
+- fan control goes live once the nct6687d dependency is prepared
+- in-process `dispatch_safe` instead of CLI subprocess (drop process spawn)
+- metrics history graph (CLI `metrics list --json` is already exposed)
