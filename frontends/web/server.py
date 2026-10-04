@@ -482,6 +482,105 @@ def _unit_enabled(systemctl: str, unit: str) -> str | None:
         return None
 
 
+_QAM_PROBE = {"ts": 0.0, "result": None}
+
+
+def _cpu_observed():
+    """Root-free live CPU readings: cpufreq policies and k10temp."""
+    out = {}
+    try:
+        policies = sorted(n for n in os.listdir("/sys/devices/system/cpu/cpufreq")
+                          if n.startswith("policy"))
+    except OSError:
+        policies = []
+    best = None
+    plist = []
+    for policy in policies[:4]:
+        base = "/sys/devices/system/cpu/cpufreq/" + policy
+        entry = {"policy": policy}
+        for key, node in (("min_mhz", "scaling_min_freq"), ("cur_mhz", "scaling_cur_freq"),
+                          ("max_mhz", "scaling_max_freq")):
+            raw, _ = _read_bounded_file(os.path.join(base, node), 64)
+            if raw is not None and raw.decode(errors="replace").strip().isdigit():
+                value = int(raw.decode().strip()) // 1000
+                entry[key] = value
+                if key == "cur_mhz" and (best is None or value > best):
+                    best = value
+        plist.append(entry)
+    if plist:
+        out["policies"] = plist
+    if best is not None:
+        out["current_mhz"] = best
+    else:
+        # BC-250 with the SMU path exposes no cpufreq policies at all; the
+        # world-readable per-core aggregate in /proc/cpuinfo is the fallback.
+        raw, _ = _read_bounded_file("/proc/cpuinfo", 256 * 1024)
+        vals = []
+        if raw is not None:
+            for line in raw.decode(errors="replace").splitlines():
+                if line.startswith("cpu MHz"):
+                    try:
+                        vals.append(float(line.split(":", 1)[1].strip()))
+                    except ValueError:
+                        pass
+        if vals:
+            out["current_mhz"] = round(max(vals))
+            out["cores_reported"] = len(vals)
+            out["source"] = "proc-cpuinfo"
+    try:
+        hwmons = sorted(os.listdir("/sys/class/hwmon"))
+    except OSError:
+        hwmons = []
+    for hw in hwmons:
+        raw, _ = _read_bounded_file("/sys/class/hwmon/%s/name" % hw, 64)
+        if raw is None or raw.decode(errors="replace").strip() != "k10temp":
+            continue
+        raw, _ = _read_bounded_file("/sys/class/hwmon/%s/temp1_input" % hw, 64)
+        if raw is not None and raw.decode(errors="replace").strip().lstrip("-").isdigit():
+            out["temp_c"] = round(int(raw.decode().strip()) / 1000.0, 1)
+            break
+    return out
+
+
+def _cpu_qam_probe():
+    """bc250-cpu-smu-helper qam-status: the app's own root-side CPU read.
+
+    Read-only, takes no arguments, and publishes the public live snapshot when
+    detection evidence exists, so the panel converges on the same numbers the
+    desktop shows instead of "missing" forever after a reboot.
+    """
+    now = time.time()
+    if now - _QAM_PROBE["ts"] < 30.0 and _QAM_PROBE["result"] is not None:
+        return dict(_QAM_PROBE["result"])
+    result = {"attempted": False}
+    if os.path.exists(CPU_HELPER):
+        result["attempted"] = True
+        try:
+            proc = subprocess.run(["sudo", "-n", CPU_HELPER, "qam-status"],
+                                  capture_output=True, text=True, timeout=15)
+            payload = None
+            for line in reversed((proc.stdout or "").splitlines()):
+                line = line.strip()
+                if line.startswith("{"):
+                    try:
+                        payload = json.loads(line)
+                    except json.JSONDecodeError:
+                        payload = None
+                    break
+            if isinstance(payload, dict):
+                result["ok"] = proc.returncode == 0
+                result.update(payload)
+            else:
+                result["ok"] = False
+                result["error"] = ((proc.stderr or proc.stdout or "").strip() or "no json")[:200]
+        except (OSError, subprocess.SubprocessError) as exc:
+            result["ok"] = False
+            result["error"] = str(exc)[:200]
+    _QAM_PROBE["ts"] = now
+    _QAM_PROBE["result"] = result
+    return dict(result)
+
+
 def read_cpu_state() -> bytes:
     """CPU OC state: the helper's public live snapshot plus the boot config."""
     cached = _cache_get("cpu", 4.0)
@@ -495,6 +594,7 @@ def read_cpu_state() -> bytes:
         "vid_limit_mv": CONTRACT["cpu_vid_limit_mv"],
     }
     payload: dict[str, object] = {"limits": limits, "write_enabled": ENABLE_WRITE}
+    payload["observed"] = _cpu_observed()
 
     raw, problem = _read_bounded_file(CPU_LIVE_STATE)
     live: dict[str, object] = {"path": CPU_LIVE_STATE}
@@ -525,6 +625,8 @@ def read_cpu_state() -> bytes:
             if mismatch:
                 live["reason"] = "snapshot belongs to a previous boot"
     payload["live"] = live
+    if not live.get("available"):
+        payload["qam_status"] = _cpu_qam_probe()
 
     raw_conf, conf_problem = _read_bounded_file(CPU_BOOT_CONFIG)
     boot: dict[str, object] = {"path": CPU_BOOT_CONFIG}
@@ -592,6 +694,12 @@ def read_cu_state() -> bytes:
         "cu_per_wgp": 2,
         "backend_ready": any(os.path.exists(path) for path in CU_BACKEND_CANDIDATES),
         "backend_paths": [path for path in CU_BACKEND_CANDIDATES if os.path.exists(path)],
+        "prerequisites": {
+            "umr": shutil.which("umr") is not None,
+            "staged_backend": any(os.path.exists(path) for path in CU_BACKEND_CANDIDATES),
+            "desktop_resource_tools": os.path.isdir(os.path.expanduser(
+                "~/.local/share/bc250-control-center/ResourceTools")),
+        },
         "write_enabled": ENABLE_WRITE,
     }
     state: dict[str, object] = {"path": CU_LIVE_STATE}
@@ -599,9 +707,10 @@ def read_cu_state() -> bytes:
     if raw is None:
         state.update({"available": False, "reason": problem})
         state["hint"] = (
-            "No live CU topology snapshot for this boot. A CU change from Desktop "
-            "Mode or Game Mode publishes it; the web write refuses without it so it "
-            "never enables WGPs on top of an unknown table."
+            "No live CU topology snapshot for this boot. Live CU readback lives in "
+            "the manager that the Desktop Mode dependency preparation stages (umr "
+            "alone is not enough); once it exists, any CU change from Desktop or "
+            "Game Mode publishes the table here, and web writes follow it."
         )
     else:
         try:

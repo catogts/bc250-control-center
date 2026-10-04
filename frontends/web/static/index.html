@@ -402,7 +402,15 @@ async function renderCU() {
     + tile("staged backend", c.backend_ready ? "yes" : "no", null, c.backend_ready ? "ok" : "warn")
     + tile("snapshot consistent", live.internally_consistent ? "yes" : "no", null, live.internally_consistent ? "ok" : "bad")
     + "</div>";
-  if (!live.available) html += '<div class="card wide" style="margin-top:10px">' + esc(dash(live.reason)) + " " + esc(dash(live.hint)) + "</div>";
+  if (!live.available) {
+    const pre = c.prerequisites || {};
+    html += '<div class="card wide" style="margin-top:10px">' + esc(dash(live.reason)) + " " + esc(dash(live.hint))
+      + '<div style="font-size:12px;margin-top:6px">'
+      + '<div>' + (pre.umr ? "✓" : "✗") + " umr " + (pre.umr ? "설치됨" : "— rpm-ostree install umr") + '</div>'
+      + '<div>' + (pre.staged_backend ? "✓" : "✗") + " CU 백엔드 " + (pre.staged_backend ? "스테이징됨" : "— 데스크톱 앱에서 Prepare dependencies 실행") + '</div>'
+      + '<div>✗ 라이브 스냅샷 — 백엔드 준비 후 Desktop/Game Mode에서 CU 변경 시 발행</div>'
+      + '</div></div>';
+  }
   if (live.masks) {
     html += "<h2>WGP table</h2><table><tr><th>row</th><th>se.sh</th>";
     for (let i = 0; i < 5; i++) html += "<th>WGP" + i + "</th>";
@@ -487,18 +495,24 @@ async function renderCPU() {
   const c = await read("cpu");
   const lim = (caps && caps.limits.cpu) || {frequency_mhz: [3100, 4200], frequency_step_mhz: 50, scale: [-50, 0], temperature_c: [70, 90], vid_limit_mv: 1325};
   const live = c.live || {};
-  const prof = live.active_profile || {};
+  const qam = c.qam_status || {};
+  const obs = c.observed || {};
+  const prof = live.active_profile || qam.active_profile || {};
   const boot = c.boot_config || {};
   const persisted = boot.persisted || {};
   const w = !!c.write_enabled;
   const dis = w ? "" : " disabled";
   let html = '<div class="grid">'
-    + tile("live profile", live.available ? (prof.mode || "present") : (live.reason || "없음"), null, live.available ? "ok" : "warn")
+    + tile("live profile", live.available ? (prof.mode || "present") : (qam.ready ? (((qam.active_profile || {}).mode) || "qam") : (live.reason || "없음")), null, (live.available || qam.ready) ? "ok" : "warn")
     + tile("frequency", prof.frequency, "MHz", "")
     + tile("scale", prof.scale, null, "")
     + tile("temp limit", prof.temperature, "°C", "")
     + tile("estimated VID", prof.estimated_vid, "mV", (prof.estimated_vid || 0) <= lim.vid_limit_mv ? "ok" : "bad")
-    + "</div><h2>Boot persistence</h2>" + kv([
+    + tile("observed now", obs.current_mhz, "MHz", "")
+    + tile("observed temp", obs.temp_c, "°C", "")
+    + "</div>";
+  if (!live.available && !qam.ready) html += '<div class="card wide" style="margin-top:10px">라이브 스냅샷 없음 — '+ esc(dash(live.reason)) + (qam.attempted ? " · qam-status: " + esc(dash(qam.reason || qam.error)) : "") + ' · Apply live 후 이 패널에 실제 프로파일이 채워집니다.</div>';
+  html += "<h2>Boot persistence</h2>" + kv([
       ["file", boot.path], ["available", boot.available ? "yes" : dash(boot.reason)],
       ["frequency", persisted.frequency], ["scale", persisted.scale], ["max_temperature", persisted.max_temperature]]);
   html += '<h2>Apply a profile</h2><div class="row">frequency <select id="cpufreq">';
