@@ -28,7 +28,6 @@ button{background:#1f6feb;color:#fff;border:0;border-radius:8px;padding:6px 10px
 <h1>BC-250 Control Center</h1>
 <div class="sub">web frontend (phase 1, read-only) · <span id="upd">--</span></div>
 <div class="row" id="tiles"></div>
-<section><h2>Profiles</h2><div id="profiles">--</div></section>
 <section><h2>System</h2><div id="system">--</div></section>
 <footer>token: <input id="token" type="password" placeholder="BC250_WEB_TOKEN (비우면 로컬 무인증)"> <button onclick="saveToken()">저장</button></footer>
 <script>
@@ -41,9 +40,6 @@ async function tick(){
     const d=await get('telemetry');const m=d.metrics||{};
     const cell=(l,k)=>{const x=m[k]||{};const v=(x.value==null)?'--':x.value;const c=x.status==='valid'?'ok':(x.status?'warn':'bad');return tile(l,v,x.unit,c);};
     document.getElementById('tiles').innerHTML=cell('GPU (sclk)','sclk')+cell('VRAM (mclk)','mclk')+cell('온도','temperature')+cell('전압','voltage')+tile('상태',d.status||'?',null,d.status==='ok'?'ok':'warn');
-    const p=await get('profiles');
-    const list=p.profiles||p.items||p;
-    document.getElementById('profiles').innerHTML=Array.isArray(list)?`<table><tr><th>name</th><th>kind</th></tr>${list.map(x=>`<tr><td>${x.name||x.id||JSON.stringify(x)}</td><td>${x.kind||''}</td></tr>`).join('')}</table>`:`<code style="font-size:11px;word-break:break-all">${JSON.stringify(p).slice(0,400)}</code>`;
     const s=await get('system');
     document.getElementById('system').innerHTML=`<code style="font-size:11px;word-break:break-all">${JSON.stringify(s).slice(0,400)}</code>`;
     document.getElementById('upd').textContent=new Date().toLocaleTimeString()+' 갱신';

@@ -32,14 +32,14 @@ TOKEN = os.environ.get("BC250_WEB_TOKEN", "")
 CLI = os.environ.get("BC250_WEB_CLI", "bc250-control-center-cli")
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
-# Commands exposed read-only; mirrors the headless dispatch_safe table.
+# Read-only commands exposed, with their fixed CLI arguments.
+# profiles/recovery/import actions are intentionally absent: they are not read-only.
 READ_COMMANDS = {
-    "telemetry": 2.0,
-    "system": 30.0,
-    "components": 30.0,
-    "profiles": 5.0,
-    "quick-access": 30.0,
-    "metrics": 10.0,
+    "telemetry": ([], 2.0),
+    "system": ([], 30.0),
+    "components": ([], 30.0),
+    "quick-access": ([], 30.0),
+    "metrics": (["list", "--limit", "50"], 10.0),
 }
 
 _cache: dict[str, tuple[float, bytes]] = {}
@@ -47,7 +47,7 @@ _lock = threading.Lock()
 
 
 def run_cli(command: str) -> bytes:
-    ttl = READ_COMMANDS[command]
+    extra, ttl = READ_COMMANDS[command]
     now = time.time()
     with _lock:
         hit = _cache.get(command)
@@ -55,7 +55,7 @@ def run_cli(command: str) -> bytes:
             return hit[1]
     try:
         proc = subprocess.run(
-            [CLI, "--json", command],
+            [CLI, "--json", command] + extra,
             capture_output=True,
             text=True,
             timeout=20,
