@@ -10,6 +10,11 @@ command runner, no root for reads.
     frontends/web/static/index.html  the dashboard (plain JS, dark theme)
     frontends/web/deploy/          installer, systemd user unit, sudoers template
 
+For a full, agent-executable provisioning runbook on the device (baseline,
+sudoers, fans, GPU, CPU OC via transient units, CU backend staging, a final
+checklist and the design rules an automation agent must keep), see
+[DEVICE-SETUP.md](DEVICE-SETUP.md).
+
 ## Run
 
 The one-command install on the device (package already installed):
