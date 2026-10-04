@@ -1,0 +1,9 @@
+# Rendered for one account by install-web.sh (it replaces @USER@), validated
+# with `visudo -cf` before installation. Exact paths only: sudo can never run
+# anything but these four root-owned helpers, and each helper re-validates its
+# own arguments as root (typed actions, BC-250 DMI identity, ranges). The fan
+# helper takes no arguments, so its rule has no wildcard.
+@USER@  ALL=(root) NOPASSWD: /usr/libexec/bc250-control-center/bc250-fan-pwm-helper
+@USER@  ALL=(root) NOPASSWD: /usr/libexec/bc250-control-center/bc250-governor-config-helper *
+@USER@  ALL=(root) NOPASSWD: /usr/libexec/bc250-control-center/bc250-cpu-smu-helper *
+@USER@  ALL=(root) NOPASSWD: /usr/libexec/bc250-control-center/bc250-cu-helper *

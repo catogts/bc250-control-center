@@ -8,10 +8,18 @@ command runner, no root for reads.
 
     frontends/web/server.py        API + static file server (http.server)
     frontends/web/static/index.html  the dashboard (plain JS, dark theme)
+    frontends/web/deploy/          installer, systemd user unit, sudoers template
 
 ## Run
 
-On the device, with the package installed:
+The one-command install on the device (package already installed):
+
+    $ bash frontends/web/deploy/install-web.sh
+
+It creates the token file, the exact-path sudoers rule for the installing
+account (rendered through `visudo -cf`), the systemd user unit and linger,
+then prints the URL and the token. Re-running it is safe; `--rotate-token`
+replaces the token. To try it without installing anything:
 
     BC250_WEB_TOKEN=$(openssl rand -hex 16) BC250_WEB_PORT=8088 \
       BC250_WEB_ENABLE_WRITE=1 python3 frontends/web/server.py
@@ -158,16 +166,8 @@ The desktop reaches the helpers through polkit; a headless listener has no graph
 ical agent, so it uses `sudo -n` against a rule that names each helper by abso-
 lute path. Nothing else about the web process is privileged.
 
-    $ sudo install -m 0440 /dev/null /etc/sudoers.d/bc250-web
-    $ sudo visudo -f /etc/sudoers.d/bc250-web
-
-```
-# %bc250web = the group the web service user belongs to.
-%bc250web  ALL=(root) NOPASSWD: /usr/libexec/bc250-control-center/bc250-fan-pwm-helper
-%bc250web  ALL=(root) NOPASSWD: /usr/libexec/bc250-control-center/bc250-governor-config-helper *
-%bc250web  ALL=(root) NOPASSWD: /usr/libexec/bc250-control-center/bc250-cpu-smu-helper *
-%bc250web  ALL=(root) NOPASSWD: /usr/libexec/bc250-control-center/bc250-cu-helper *
-```
+`deploy/install-web.sh` renders `deploy/bc250-web.sudoers.template` for the in-
+stalling account, validates it with `visudo -cf` and installs it mode 0440:
 
 Notes:
 
@@ -180,6 +180,8 @@ Notes:
   `... bc250-cpu-smu-helper apply-live`, `... bc250-cpu-smu-helper disable-boot`
   as separate entries. Every action the web needs is a fixed first token, so this
   is a mechanical change.
+* To scope by group instead of account, replace `@USER@` with `%bc250web` and
+  add the service account to that group.
 * `visudo` is not optional: a syntax error in `/etc/sudoers.d/` breaks `sudo`
   system-wide.
 * Reads need none of this. If sudoers is missing, the page still works and every
@@ -187,7 +189,7 @@ Notes:
 
 ## systemd user service
 
-`~/.config/systemd/user/bc250-web.service`:
+`deploy/bc250-web.service`, installed to `~/.config/systemd/user/bc250-web.service`:
 
 ```ini
 [Unit]
@@ -201,30 +203,26 @@ Environment=BC250_WEB_PORT=8088
 Environment=BC250_WEB_ENABLE_WRITE=1
 Environment=BC250_WEB_CLI=bc250-control-center-cli
 EnvironmentFile=%h/.config/bc250-web.env
-ExecStart=/usr/bin/python3 %h/bc250-control-center/frontends/web/server.py
+ExecStart=/usr/bin/python3 %h/.local/share/bc250-web/server.py
 Restart=on-failure
 RestartSec=3
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=/tmp/bc250-web-profiles %h/.config/bc250-control-center %h/.local/share/bc250-control-center
 
 [Install]
 WantedBy=default.target
 ```
 
-    $ umask 077 && printf 'BC250_WEB_TOKEN=%s\n' "$(openssl rand -hex 16)" > ~/.config/bc250-web.env
-    $ sudo usermod -aG bc250web "$USER"
-    $ systemctl --user daemon-reload
-    $ systemctl --user enable --now bc250-web
-    $ loginctl enable-linger "$USER"      # keep it up without an open session
-    $ journalctl --user -u bc250-web -f
+This is the shape field-verified end to end on a BC-250: all reads, the four
+write surfaces and the profiles round-trip. `NoNewPrivileges` and
+`ProtectSystem` are deliberately unset - writes go through setuid `sudo -n`
+(a hardened sandbox breaks exactly that) and profiles import rewrites the
+user's own `$HOME/.config/bc250-control-center`. For a read-only deployment
+(`BC250_WEB_ENABLE_WRITE=0`, no sudo at all) you can add `ProtectSystem=strict`
+plus `ReadWritePaths` for the staging and profile directories; that form has
+not been field-verified for imports.
 
-`ProtectSystem=strict` plus `ReadWritePaths` is what profiles import needs: the
-server itself writes only its staging directory, but the CLI subprocess updates
-the user's own config files (with the repository's automatic backup under
-`backups/`). `PrivateTmp=true` keeps the staging directory private to the
-service.
+    $ bash frontends/web/deploy/install-web.sh   # unit + token + sudoers + linger
+    $ systemctl --user status bc250-web
+    $ journalctl --user -u bc250-web -f
 
 ## Deliberately not exposed
 
@@ -248,7 +246,10 @@ service.
   `BC250_WEB_ENABLE_WRITE=1`.
 * Fan control needs the out-of-tree `nct6687d` driver. With the in-tree driver,
   the helper refuses every manual duty cycle (`read-back was '99'`) — measured on
-  the target device — and `/api/fans` says so in `note`.
+  the target device — and `/api/fans` says so in `note`. `sensor_drivers` lists
+  `nct6687d` when that driver is the one bound to the chip: the platform binding
+  is the signal, because both forks ship the module under the name `nct6687`
+  (the in-tree one binds this chip as `nct6683`).
 
 ## Verification
 

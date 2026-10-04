@@ -1,0 +1,25 @@
+[Unit]
+Description=BC250 Control Center web dashboard
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=BC250_WEB_BIND=0.0.0.0
+Environment=BC250_WEB_PORT=@PORT@
+Environment=BC250_WEB_ENABLE_WRITE=1
+Environment=BC250_WEB_CLI=bc250-control-center-cli
+EnvironmentFile=%h/.config/bc250-web.env
+ExecStart=/usr/bin/python3 %h/.local/share/bc250-web/server.py
+Restart=on-failure
+RestartSec=3
+
+# NoNewPrivileges/ProtectSystem are deliberately NOT set here. Writes reach
+# hardware through setuid sudo against the exact-path rules in
+# /etc/sudoers.d/bc250-web, and profiles import rewrites the user's own
+# config under $HOME. The privilege boundary is that sudoers file plus the
+# helpers' own root-side validation, not the unit sandbox. This is the shape
+# that was verified end to end on a BC-250; hardened variants are documented
+# in the README but have not been field-verified.
+
+[Install]
+WantedBy=default.target
