@@ -40,6 +40,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -747,7 +748,75 @@ def read_cu_state() -> bytes:
             elif mismatch:
                 state["reason"] = "snapshot belongs to a previous boot"
     payload["live"] = state
+    dashboard, dashboard_error = _cu_dashboard()
+    if dashboard is not None:
+        payload["dashboard"] = dashboard
+    if dashboard_error:
+        payload["dashboard_error"] = dashboard_error
     return _cache_put("cu", _json_body(payload))
+
+
+def _cu_dashboard() -> tuple[dict | None, str]:
+    """Read the staged CU manager once; its status table is the live topology.
+
+    The manager prints the same dashboard Desktop Mode shows: per-row WGP
+    dispatch states, the SPI mask and amdgpu's booted CU count. Parsing is
+    deliberately forgiving: unknown rows are skipped, never guessed.
+    """
+    try:
+        proc = subprocess.run(
+            ["sudo", "-n", CU_HELPER, "status"],
+            capture_output=True, text=True, timeout=45, check=False,
+        )
+    except Exception as exc:
+        return None, "backend status unavailable: %s" % exc
+    if proc.returncode != 0:
+        return None, (proc.stderr or proc.stdout or "helper exited %d" % proc.returncode).strip()[:300]
+    out = proc.stdout
+    dashboard: dict[str, object] = {}
+    match = re.search(r"ASIC\s*:\s*(\S+)", out)
+    if match:
+        dashboard["asic"] = match.group(1)
+    match = re.search(r"active_cu_number=(\d+)", out)
+    if match:
+        dashboard["amdgpu_active_cu_number"] = int(match.group(1))
+    match = re.search(r"CUs active & routed\s*:\s*(\d+)\s*/\s*(\d+)", out)
+    if match:
+        dashboard["active"] = int(match.group(1))
+        dashboard["total"] = int(match.group(2))
+    match = re.search(r"Legend\s*:\s*(.+)", out)
+    if match:
+        dashboard["legend"] = match.group(1).strip()
+    rows: list[dict] = []
+    for line in out.splitlines():
+        stripped = line.strip()
+        if not (stripped.startswith("|") and "SE" in stripped and ".SH" in stripped):
+            continue
+        cells = [cell.strip() for cell in stripped.split("|")]
+        head = cells[1] if len(cells) > 1 else ""
+        se_sh = re.match(r"SE(\d+)\.SH(\d+)$", head)
+        if not se_sh or len(cells) < 10:
+            continue
+        states = cells[2:7]
+        mask = 0
+        for index, state in enumerate(states):
+            if state.startswith("D+") or state.startswith("S+"):
+                mask |= 1 << index
+        rows.append({
+            "se": int(se_sh.group(1)),
+            "sh": int(se_sh.group(2)),
+            "wgps": states,
+            "spi": cells[7],
+            "cus": cells[9],
+            "mask": mask,
+        })
+    if rows:
+        dashboard["rows"] = rows
+    if not dashboard:
+        return None, "backend status did not contain a parsable dashboard"
+    dashboard["observed_at_unix_ms"] = int(time.time() * 1000)
+    return dashboard, ""
+
 
 
 def read_capabilities() -> bytes:

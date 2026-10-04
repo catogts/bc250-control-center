@@ -394,22 +394,40 @@ const cuCount = masks => Array.isArray(masks)
 async function renderCU() {
   const c = await read("cu");
   const live = c.live || {};
+  const dsh = c.dashboard || null;
   const w = !!c.write_enabled;
   const dis = w ? "" : " disabled";
   let html = '<div class="grid">'
-    + tile("live topology", live.available ? "present" : (live.reason || "없음"), null, live.available ? "ok" : "warn")
-    + tile("active CUs", live.active_cus, null, live.count_in_contract ? "ok" : "bad")
+    + tile("live topology", live.available ? "present" : (dsh ? "backend live" : (live.reason || "없음")), null, (live.available || dsh) ? "ok" : "warn")
+    + tile("active CUs", (dsh && typeof dsh.active === "number" ? dsh.active : live.active_cus), (dsh && dsh.total ? ("/ " + dsh.total) : null), (live.count_in_contract || dsh) ? "ok" : "bad")
     + tile("staged backend", c.backend_ready ? "yes" : "no", null, c.backend_ready ? "ok" : "warn")
-    + tile("snapshot consistent", live.internally_consistent ? "yes" : "no", null, live.internally_consistent ? "ok" : "bad")
+    + tile("snapshot consistent", live.internally_consistent ? "yes" : (dsh ? "n/a" : "no"), null, live.internally_consistent ? "ok" : (dsh ? "dim" : "bad"))
     + "</div>";
   if (!live.available) {
     const pre = c.prerequisites || {};
-    html += '<div class="card wide" style="margin-top:10px">' + esc(dash(live.reason)) + " " + esc(dash(live.hint))
+    const dOk = !!dsh;
+    html += '<div class="card wide" style="margin-top:10px">' + (dOk ? "백엔드가 라이브로 WGP 상태를 읽는 중 - 스냅샷은 첫 CU 변경 후 발행" : esc(dash(live.reason)) + " " + esc(dash(live.hint)))
       + '<div style="font-size:12px;margin-top:6px">'
       + '<div>' + (pre.umr ? "✓" : "✗") + " umr " + (pre.umr ? "설치됨" : "— rpm-ostree install umr") + '</div>'
       + '<div>' + (pre.staged_backend ? "✓" : "✗") + " CU 백엔드 " + (pre.staged_backend ? "스테이징됨" : "— 데스크톱 앱에서 Prepare dependencies 실행") + '</div>'
-      + '<div>✗ 라이브 스냅샷 — 백엔드 준비 후 Desktop/Game Mode에서 CU 변경 시 발행</div>'
+      + '<div>' + (dOk ? ("✓ 라이브 백엔드 읽기 - " + esc(dsh.asic || "")) : "✗ 라이브 스냅샷 — 백엔드 준비 후 Desktop/Game Mode에서 CU 변경 시 발행") + '</div>'
       + '</div></div>';
+  }
+  if (dsh && dsh.rows && !live.masks) {
+    html += "<h2>WGP table (backend live)</h2>"
+      + (dsh.legend ? '<div class="dim" style="font-size:11px">' + esc(dsh.legend) + "</div>" : "")
+      + "<table><tr><th>row</th><th>se.sh</th>";
+    for (let i = 0; i < 5; i++) html += "<th>WGP" + i + "</th>";
+    html += "<th>SPI</th><th>CUs</th></tr>";
+    dsh.rows.forEach((r, i) => {
+      html += "<tr><td>" + i + "</td><td>" + r.se + "." + r.sh + "</td>";
+      (r.wgps || []).forEach(st => {
+        const on = st === "D+" || st === "S+";
+        html += '<td class="' + (on ? "ok" : "dim") + '">' + esc(st) + "</td>";
+      });
+      html += "<td>" + esc(r.spi || "") + "</td><td>" + esc(r.cus || "") + "</td></tr>";
+    });
+    html += "</table>";
   }
   if (live.masks) {
     html += "<h2>WGP table</h2><table><tr><th>row</th><th>se.sh</th>";
