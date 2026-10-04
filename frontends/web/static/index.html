@@ -719,9 +719,11 @@ async function profPreview() {
   if (!file) return toast("파일 없음", "bundle JSON 파일을 선택하세요.", "bad");
   let text;
   try { text = await file.text(); } catch (e) { return toast("읽기 실패", String(e), "bad"); }
-  let bundle;
-  try { bundle = JSON.parse(text); } catch (e) { return toast("JSON 아님", String(e), "bad"); }
-  const data = await postProfiles("profiles-preview", {bundle: bundle});
+  try { JSON.parse(text); } catch (e) { return toast("JSON 아님", String(e), "bad"); }
+  /* The bundle's own sha256 covers its exact bytes, so the picked file is sent as
+     text. Re-serialising a parsed object turns 1.0 into 1 and the CLI then
+     rejects a bundle the desktop itself wrote. */
+  const data = await postProfiles("profiles-preview", {bundle_text: text});
   if (!data.ok) {
     previewed = null;
     toast("프로파일 preview · " + (data.outcome || "rejected"), data.detail || "(응답 없음)", outcomeCls(data), data.hint);

@@ -1364,22 +1364,46 @@ def _discard(path: str) -> None:
 def _stage_bundle(payload: dict, prefix: str) -> tuple[str, bytes]:
     """Validate what the client sent, then write one 0600 stage file.
 
+    `bundle_text` (preferred) is the file the operator picked, verbatim: a
+    bundle's own sha256 covers its exact payload, so re-serialising a parsed
+    object is not safe - `1.0` becomes `1`, and the CLI would then reject the
+    file the desktop itself produced. The object form stays accepted for
+    programmatic clients, but it is re-serialised here, never by the caller.
+
     The name is generated here and only ever handed back to the client, so a
     request can name nothing this server did not write in this directory.
     """
-    bundle = payload.get("bundle")
+    raw_text = payload.get("bundle_text")
+    if raw_text is not None and not isinstance(raw_text, str):
+        raise WriteError("bundle_text must be the bundle's JSON text")
+    if isinstance(raw_text, str):
+        try:
+            encoded = raw_text.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise WriteError("bundle_text is not valid text: %s" % exc) from exc
+        if len(encoded) > MAX_BUNDLE_BYTES:
+            raise WriteError("bundle exceeds the %d byte limit" % MAX_BUNDLE_BYTES)
+        try:
+            bundle = json.loads(encoded)
+        except json.JSONDecodeError as exc:
+            raise WriteError("bundle_text is not json: %s" % exc) from exc
+        if not isinstance(bundle, dict):
+            raise WriteError("bundle_text must contain a JSON object")
+    else:
+        bundle = payload.get("bundle")
     if not isinstance(bundle, dict):
         raise WriteError("bundle must be a JSON object")
     if bundle.get("application") != BUNDLE_APPLICATION:
         raise WriteError("bundle application must be %s" % BUNDLE_APPLICATION)
     if not isinstance(bundle.get("config"), dict) or not isinstance(bundle.get("profiles"), dict):
         raise WriteError("bundle is missing its config or profiles section")
-    try:
-        encoded = json.dumps(bundle, ensure_ascii=False).encode("utf-8")
-    except (TypeError, ValueError) as exc:
-        raise WriteError("bundle is not serialisable: %s" % exc) from exc
-    if len(encoded) > MAX_BUNDLE_BYTES:
-        raise WriteError("bundle exceeds the %d byte limit" % MAX_BUNDLE_BYTES)
+    if not isinstance(raw_text, str):
+        try:
+            encoded = json.dumps(bundle, ensure_ascii=False).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise WriteError("bundle is not serialisable: %s" % exc) from exc
+        if len(encoded) > MAX_BUNDLE_BYTES:
+            raise WriteError("bundle exceeds the %d byte limit" % MAX_BUNDLE_BYTES)
     _prune_staged()
     path = os.path.join(PROFILES_DIR, "%s%s.json" % (prefix, _new_stage_id()))
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
@@ -1668,7 +1692,10 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0") or 0)
         except ValueError:
             length = 0
-        max_body = MAX_BUNDLE_BYTES + 4096 if kind in PROFILES_ACTIONS else 64 * 1024
+        # A 2 MiB bundle is also a JSON string inside the envelope once, and JSON
+        # escaping can expand it, so the profiles routes get twice the limit and
+        # the real bound is still checked on the decoded bundle bytes.
+        max_body = (MAX_BUNDLE_BYTES * 2 + 8192) if kind in PROFILES_ACTIONS else 64 * 1024
         if length <= 0 or length > max_body:
             self._json(400, {"ok": False, "detail": "body must be a small JSON object (max %d)" % max_body})
             return

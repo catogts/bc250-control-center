@@ -89,11 +89,22 @@ server adds its own guarantees on top of the repository's:
 | endpoint | body | behaviour |
 | --- | --- | --- |
 | `/api/profiles-export` | `{}` | stages `profiles export` under the server's own file name, returns it byte-exact (`bundle_text`, `sha256`) for the browser to download |
-| `/api/profiles-preview` | `{bundle: …}` | writes one 0600 stage file with a **server-generated** name, runs `profiles preview`, returns `preview_id` + checksum + an old→new `diff` against the live config |
+| `/api/profiles-preview` | `{bundle_text: "<file contents>"}` (preferred) or `{bundle: {…}}` | writes one 0600 stage file with a **server-generated** name, runs `profiles preview`, returns `preview_id` + checksum + an old→new `diff` against the live config |
 | `/api/profiles-import` | `{preview_id, checksum}` | re-previews the staged file, `hmac.compare_digest`s the checksum against what the modal displayed, then runs `profiles import --yes`; the repository backs up the current config first, and the stage file is deleted so **one preview can never import twice** |
 
 An import cannot name a path, only a `preview_id` this server issued, and
 `checksum` must match - what the modal showed is what lands, once.
+
+`bundle_text` is preferred because a bundle's own `sha256` covers its exact
+bytes: a browser that parses the file and re-sends the object turns `1.0` into
+`1`, and the CLI then rejects a bundle the desktop itself wrote (measured - a
+`profiles export` file re-serialised through `JSON.parse`/`JSON.stringify` fails
+its own checksum). The server stages `bundle_text` verbatim and validates it
+afterwards, so the file the operator picked is the file that is checked, shown
+and imported. The object form is kept for programmatic clients and is
+re-serialised server-side. Bodies on the three profiles routes may reach
+`2 × MAX_BUNDLE_BYTES + 8192` (JSON escaping of a large string expands); the
+real bound, `MAX_BUNDLE_BYTES` (2 MiB), is enforced on the decoded bundle.
 
 Server-side domain limits (measured against `bc250cc.shared.contract`, so a
 request that the helper would refuse never reaches `sudo`):
