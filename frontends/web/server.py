@@ -1339,14 +1339,22 @@ def plan_cu_write(payload: dict) -> tuple[dict, list[str]]:
             )
 
     live = json.loads(read_cu_state())
-    current = live.get("live", {}).get("masks")
-    current = _validate_cu_masks(current)
+    current = _validate_cu_masks(live.get("live", {}).get("masks"))
     if current is None:
-        raise WriteError(
-            "live CU topology is unavailable or stale; a CU change from Desktop Mode or "
-            "Game Mode publishes it and the web write refuses to guess",
-            409,
-        )
+        # No Quick Access snapshot yet: the staged manager reads the dispatch
+        # registers directly, so its four verified rows are the hardware truth
+        # and a legitimate confirm-basis. Anything less stays a guess, refused.
+        rows = (live.get("dashboard") or {}).get("rows")
+        if isinstance(rows, list) and len(rows) == 4:
+            current = _validate_cu_masks([row.get("mask") for row in rows])
+        if current is None:
+            raise WriteError(
+                "live CU topology is unavailable or stale; read the staged backend "
+                "dashboard or publish a snapshot from Desktop/Game Mode - the web "
+                "write refuses to guess",
+                409,
+            )
+
     requested = _cu_masks_for_target(current, target) if op == "set" else list(masks)
 
     enabled: list[str] = []
