@@ -213,17 +213,35 @@ def _read_bounded_file(path: str, limit: int = MAX_STATE_BYTES) -> tuple[bytes |
         metadata = os.lstat(path)
     except OSError as exc:
         return None, "missing (%s)" % exc.strerror
+    # sysfs attribute nodes (pwm*/fan*/temp*) are symlinks onto the device's
+    # own attribute objects. Following them is the point of reading hwmon; a
+    # symlink this deep inside /sys cannot redirect anything an operator does
+    # not already control, so they are read, not refused.
     if stat.S_ISLNK(metadata.st_mode):
-        return None, "refused: path is a symlink"
+        try:
+            target = os.stat(path)
+        except OSError as exc:
+            return None, "missing (%s)" % exc.strerror
+        if not stat.S_ISREG(target.st_mode):
+            return None, "refused: symlink target is not a regular file"
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read(limit + 1)
+        except OSError as exc:
+            return None, "unreadable (%s)" % exc.strerror
+        if len(data) > limit:
+            return None, "refused: larger than %d bytes" % limit
+        return data, None
     if not stat.S_ISREG(metadata.st_mode):
         return None, "refused: not a regular file"
-    if metadata.st_size > limit:
-        return None, "refused: larger than %d bytes" % limit
     try:
         with open(path, "rb") as handle:
-            return handle.read(), None
+            data = handle.read(limit + 1)
     except OSError as exc:
         return None, "unreadable (%s)" % exc.strerror
+    if len(data) > limit:
+        return None, "refused: larger than %d bytes" % limit
+    return data, None
 
 
 def _boot_id() -> str:
@@ -329,7 +347,19 @@ def read_fan_state() -> bytes:
                 entry[key] = int(text) if text.isdigit() else text
             channels.append(entry)
     drivers = []
-    for module in ("nct6687d", "nct6686", "nct6687", "it87"):
+    out_of_tree = False
+    if chips:
+        try:
+            bound = os.path.basename(os.readlink("/sys/class/hwmon/%s/device/driver" % chips[0]))
+        except OSError:
+            bound = ""
+        if bound == "nct6687":
+            # In-tree this chip binds as nct6683; a plain "nct6687" binding is
+            # the out-of-tree fork (module name is shared), and that is what
+            # makes manual duty cycles stick.
+            out_of_tree = True
+            drivers.append("nct6687d")
+    for module in ("nct6683", "nct6687", "it87"):
         if os.path.exists("/sys/module/" + module):
             drivers.append(module)
     # The shipped in-tree nct6686 reports a proprietary EC mode and refuses
