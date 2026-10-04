@@ -6,66 +6,840 @@
 <title>BC-250 Control Center - Web</title>
 <style>
 :root{color-scheme:dark}
-body{margin:0;padding:20px;background:#0b0f14;color:#e6edf3;font-family:system-ui,sans-serif}
-h1{font-size:18px;margin:0 0 4px}
-.sub{font-size:12px;color:#8b98a5;margin-bottom:16px}
-.row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
-.card{background:#151b23;border:1px solid #263140;border-radius:12px;padding:14px 16px;min-width:140px}
+*{box-sizing:border-box}
+body{margin:0;padding:18px 20px 40px;background:#0b0f14;color:#e6edf3;font-family:system-ui,sans-serif;font-size:14px}
+h1{font-size:18px;margin:0 0 2px}
+h2{font-size:12px;color:#8b98a5;text-transform:uppercase;letter-spacing:.07em;margin:20px 0 8px}
+.sub{font-size:12px;color:#8b98a5}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 4px;border-bottom:1px solid #263140}
+.tab{background:transparent;border:1px solid transparent;border-bottom:0;color:#8b98a5;padding:7px 13px;font-size:13px;border-radius:9px 9px 0 0;cursor:pointer}
+.tab.on{background:#151b23;border-color:#263140;color:#e6edf3}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:12px}
+.card{background:#151b23;border:1px solid #263140;border-radius:12px;padding:12px 14px}
+.card.wide{grid-column:1/-1}
 .label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8b98a5}
-.value{font-size:28px;font-weight:700;margin-top:4px}
-.unit{font-size:12px;color:#8b98a5;margin-left:3px}
-.ok{color:#3fb950}.warn{color:#d29922}.bad{color:#f85149}
-section{margin-top:18px}
-h2{font-size:13px;color:#8b98a5;text-transform:uppercase;letter-spacing:.06em}
-table{border-collapse:collapse;font-size:13px;width:100%;max-width:760px}
-td,th{border-bottom:1px solid #263140;padding:6px 8px;text-align:left}
-footer{margin-top:20px;font-size:11px;color:#6e7681}
-input{background:#0d1117;border:1px solid #263140;color:#e6edf3;border-radius:8px;padding:6px 8px;font-size:12px;width:220px}
-button{background:#1f6feb;color:#fff;border:0;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer}
+.value{font-size:24px;font-weight:700;margin-top:3px}
+.value.sm{font-size:16px}
+.unit{font-size:12px;color:#8b98a5;margin-left:3px;font-weight:400}
+.ok{color:#3fb950}.warn{color:#d29922}.bad{color:#f85149}.dim{color:#8b98a5}
+table{border-collapse:collapse;font-size:13px;width:100%}
+td,th{border-bottom:1px solid #263140;padding:5px 8px;text-align:left;vertical-align:middle}
+th{color:#8b98a5;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+input,select,textarea{background:#0d1117;border:1px solid #263140;color:#e6edf3;border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit}
+textarea{width:100%;min-height:62px;font-family:ui-monospace,monospace}
+input[type=range]{padding:0;width:130px}
+button{background:#1f6feb;color:#fff;border:0;border-radius:8px;padding:6px 11px;font-size:12px;cursor:pointer}
+button.sec{background:#21262d;border:1px solid #263140;color:#c9d1d9}
+button.danger{background:#a54014}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.pill{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid #263140;color:#8b98a5}
+.pill.on{border-color:#238636;color:#3fb950}
+.pill.off{border-color:#bd4b2b;color:#f85149}
+pre{background:#0d1117;border:1px solid #263140;border-radius:8px;padding:8px 10px;font-size:11px;overflow:auto;max-height:300px;margin:6px 0}
+details>summary{cursor:pointer;font-size:12px;color:#8b98a5;margin:6px 0}
+#result{position:fixed;right:16px;bottom:16px;max-width:540px;z-index:40;display:flex;flex-direction:column;gap:8px}
+.toast{background:#151b23;border:1px solid #263140;border-left:4px solid #8b98a5;border-radius:10px;padding:10px 12px;font-size:12px;box-shadow:0 8px 28px rgba(0,0,0,.5)}
+.toast.applied{border-left-color:#3fb950}.toast.rejected{border-left-color:#d29922}.toast.bad{border-left-color:#f85149}
+.toast b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b98a5;margin-bottom:3px}
+.toast .det{white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,monospace}
+#scrim{position:fixed;inset:0;background:rgba(1,4,9,.72);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+#modal{background:#121924;border:1px solid #2f3d4f;border-radius:14px;max-width:640px;width:100%;padding:18px 20px}
+#modal h3{margin:0 0 6px;font-size:15px;color:#e6edf3}
+#modal p{font-size:12px;color:#8b98a5;margin:0 0 12px}
+#pairs td.old{color:#d29922;font-family:ui-monospace,monospace}
+#pairs td.new{color:#3fb950;font-family:ui-monospace,monospace}
+#argvline{font-family:ui-monospace,monospace;font-size:11px;color:#8b98a5;background:#0d1117;border:1px solid #263140;border-radius:8px;padding:7px 9px;margin:10px 0;word-break:break-all}
+footer{margin-top:26px;padding-top:12px;border-top:1px solid #263140;font-size:11px;color:#6e7681}
+.kv{display:grid;grid-template-columns:minmax(120px,200px) 1fr;gap:3px 10px;font-size:12px}
+.kv>div:nth-child(odd){color:#8b98a5}
 </style>
 </head>
 <body>
 <h1>BC-250 Control Center</h1>
-<div class="sub">web frontend (phase 1, read-only) · <span id="upd">--</span></div>
-<div class="row" id="tiles"></div>
-<section><h2>Fans</h2><div id="fans">--</div></section>
-<section><h2>System</h2><div id="system">--</div></section>
-<footer>token: <input id="token" type="password" placeholder="BC250_WEB_TOKEN (비우면 로컬 무인증)"> <button onclick="saveToken()">저장</button></footer>
+<div class="sub">web dashboard · <span id="upd">--</span> · <span id="authstate" class="pill">확인 중</span> <span id="wstate" class="pill">쓰기 확인 중</span></div>
+
+<div class="tabs" id="tabs"></div>
+<div id="panel"><div class="dim">loading…</div></div>
+
+<div id="result"></div>
+<div id="scrim"><div id="modal">
+  <h3 id="mtitle"></h3>
+  <p id="mnote"></p>
+  <table id="pairs"></table>
+  <div id="argvline"></div>
+  <div class="row" style="justify-content:flex-end">
+    <button class="sec" id="mcancel">취소</button>
+    <button id="mok">Apply</button>
+  </div>
+</div></div>
+
+<footer>
+  token: <input id="token" type="password" placeholder="BC250_WEB_TOKEN" autocomplete="off">
+  <button class="sec" id="savatar">저장</button>
+  <span id="footstate"></span>
+</footer>
+
 <script>
-function authQS(){const t=localStorage.getItem('bc250token')||'';return t?('?token='+encodeURIComponent(t)):'';}
-function tok(){return localStorage.getItem('bc250token')||'';}
-async function postFan(body){
-  const r=await fetch('/api/fan'+authQS(),{method:'POST',headers:{'Content-Type':'application/json','X-Auth':tok()},body:JSON.stringify(body)});
-  const d=await r.json(); alert(d.ok?('적용됨: '+d.detail):('실패: '+d.detail)); loadFans();
+"use strict";
+const TABS = ["Monitor", "Fans", "GPU", "CU", "CPU-SMU", "Profiles", "Recovery"];
+/* POST endpoints and the read that backs them. A fan write is /api/fan but the
+   snapshot the operator confirmed came from /api/fans. */
+const READ_OF = {fan: "fans", gpu: "gpu", cpu: "cpu", cu: "cu"};
+let active = localStorage.getItem("bc250tab") || "Monitor";
+if (!TABS.includes(active)) active = "Monitor";
+const snap = {};
+let caps = null;
+
+const $ = id => document.getElementById(id);
+const tok = () => localStorage.getItem("bc250token") || "";
+const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const qsStr = () => { const t = tok(); return t ? "?token=" + encodeURIComponent(t) : ""; };
+const dash = v => (v == null || v === "" ? "–" : v);
+
+async function read(key) {
+  const r = await fetch("/api/" + key + qsStr(), {headers: {"X-Auth": tok()}});
+  const data = await r.json().catch(() => ({error: "HTTP " + r.status + " returned non-json"}));
+  if (r.status === 401) { setAuth(false); throw new Error("401 unauthorized – 토큰을 확인하세요"); }
+  if (data.error) throw new Error(key + ": " + data.error);
+  setAuth(true);
+  snap[key] = data;
+  return data;
 }
-async function loadFans(){
-  try{
-    const f=await get('fans');const chs=f.channels||[];
-    if(!chs.length){document.getElementById('fans').textContent='nct668 센서 없음';return;}
-    let h='<table><tr><th>ch</th><th>label</th><th>duty</th><th>RPM</th><th>enable</th>'+(f.write_enabled?'<th>control</th>':'')+'</tr>';
-    for(const c of chs){
-      const ctl=f.write_enabled?`<td><input type="range" min="0" max="255" value="${c.duty??127}" id="s${c.channel}" style="width:110px"> <button onclick="postFan({op:'set',channel:${c.channel},value:+document.getElementById('s${c.channel}').value})" >SET</button> <button onclick="if(confirm('ch${c.channel} 자동 모드로 되돌립니다'))postFan({op:'auto',channel:${c.channel}})">AUTO</button></td>`:'';
-      h+=`<tr><td>${c.channel}</td><td>${c.label||''}</td><td>${c.duty??'--'} (${Math.round((c.duty??0)/2.55)}%)</td><td>${c.rpm??'--'}</td><td>${c.enable??'--'}</td>${ctl}</tr>`;
+const hashOf = key => (snap[key] && snap[key]._state_hash) || "";
+
+function setAuth(ok) {
+  const el = $("authstate");
+  el.textContent = ok ? "인증됨" : "인증 필요";
+  el.className = "pill " + (ok ? "on" : "off");
+}
+
+function toast(title, detail, cls, hint) {
+  const box = document.createElement("div");
+  box.className = "toast " + (cls || "");
+  box.innerHTML = "<b></b><div class=\"det\"></div>" + (hint ? "<div class=\"det dim\"></div>" : "");
+  box.childNodes[0].textContent = title;
+  box.querySelector(".det").textContent = detail;
+  if (hint) box.querySelectorAll(".det")[1].textContent = hint;
+  $("result").appendChild(box);
+  setTimeout(() => box.remove(), cls === "applied" ? 9000 : 40000);
+  box.onclick = () => box.remove();
+}
+
+/* ------------------------------------------------- confirm modal + apply */
+let pending = null;
+function confirmApply(title, pairs, argv, note) {
+  return new Promise(resolve => {
+    $("mtitle").textContent = title;
+    $("mnote").textContent = note || "장치를 적용 직전 다시 읽습니다. 이 화면을 읽은 뒤 값이 바뀌었으면 서버가 409로 거부합니다.";
+    $("pairs").innerHTML = pairs.map(p =>
+      "<tr><th>" + esc(p[0]) + "</th><td class=\"old\">" + esc(dash(p[1]))
+      + "</td><td class=\"dim\">→</td><td class=\"new\">" + esc(dash(p[2])) + "</td></tr>").join("");
+    $("argvline").textContent = argv || "";
+    $("scrim").style.display = "flex";
+    pending = resolve;
+  });
+}
+function closeModal(value) {
+  $("scrim").style.display = "none";
+  if (pending) { const fn = pending; pending = null; fn(value); }
+}
+$("mcancel").onclick = () => closeModal(false);
+$("mok").onclick = () => closeModal(true);
+$("scrim").onclick = e => { if (e.target.id === "scrim") closeModal(false); };
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(false); });
+
+async function apply(kind, body, title, pairs, argv) {
+  if (!caps || !caps.write_enabled) { return toast("쓰기 비활성", "서버에 BC250_WEB_ENABLE_WRITE=1 이 없습니다.", "bad"); }
+  if (!tok()) { return toast("토큰 필요", "발화면에 토큰을 입력하세요. 토큰 없는 서버는 루트 헬퍼를 호출하지 않습니다.", "bad"); }
+  if (!(await confirmApply(title, pairs, argv))) { return toast("취소됨", "적용하지 않았습니다.", ""); }
+  const payload = Object.assign({confirm: true, expected_state: hashOf(READ_OF[kind])}, body);
+  let r, data;
+  try {
+    r = await fetch("/api/" + kind, {method: "POST",
+      headers: {"Content-Type": "application/json", "X-Auth": tok()}, body: JSON.stringify(payload)});
+    data = await r.json().catch(() => ({detail: "HTTP " + r.status + " 응답이 JSON이 아닙니다"}));
+  } catch (e) { return toast("전송 오류", String(e), "bad"); }
+  /* The helper's legitimate safety refusals are still device answers: show the
+     sentence exactly as it came back, do not dress it up as a transport error. */
+  const outcome = data.outcome || (data.ok ? "applied" : "rejected");
+  const cls = (outcome === "applied" || outcome === "unchanged") ? "applied"
+    : (outcome === "rejected" || outcome === "stale" || r.status === 409) ? "rejected" : "bad";
+  toast(title + " · " + outcome, data.detail || "(응답 없음)", cls, data.hint);
+  await refresh(true);
+}
+
+/* ------------------------------------------------------------- fragments */
+const tile = (label, value, unit, cls) =>
+  '<div class="card"><div class="label">' + esc(label) + '</div><div class="value sm ' + (cls || "") + '">'
+  + esc(dash(value)) + (unit ? '<span class="unit">' + esc(unit) + "</span>" : "") + "</div></div>";
+const raw = obj => "<pre>" + esc(JSON.stringify(obj, null, 2)) + "</pre>";
+const details = (sum, body) => "<details><summary>" + esc(sum) + "</summary>" + body + "</details>";
+const kv = pairs => '<div class="kv">' + pairs.map(p => "<div>" + esc(p[0]) + "</div><div>" + esc(dash(p[1])) + "</div>").join("") + "</div>";
+const writeNote = data => (data && data.write_enabled) ? ""
+  : '<div class="pill off" style="margin:10px 0">쓰기 비활성 — 서버에 BC250_WEB_ENABLE_WRITE=1 필요</div>';
+const statusCls = s => (s === "valid" || s === "ok" || s === true) ? "ok" : (s ? "warn" : "bad");
+
+/* ------------------------------------------------------------- Monitor */
+async function renderMonitor() {
+  const t = await read("telemetry");
+  const m = (t.metrics && typeof t.metrics === "object") ? t.metrics : {};
+  let html = '<div class="grid">' + tile("telemetry status", t.status || "?", null, statusCls(t.status));
+  for (const key of Object.keys(m)) {
+    const cell = m[key];
+    if (cell && typeof cell === "object" && "value" in cell) {
+      html += tile(key, cell.value, cell.unit || "", statusCls(cell.status));
     }
-    h+='</table>';
-    if(!f.write_enabled)h+='<div style="font-size:11px;color:#8b98a5;margin-top:6px">쓰기 비활성 (서버 BC250_WEB_ENABLE_WRITE=1 필요)</div>';
-    document.getElementById('fans').innerHTML=h;
-  }catch(e){document.getElementById('fans').textContent='fans 오류: '+e;}
+  }
+  html += "</div>";
+  const rest = Object.assign({}, t);
+  delete rest.metrics;
+  html += "<h2>Telemetry</h2>" + details("raw telemetry", raw(rest));
+  const [sys, comp, qa, integ] = await Promise.all([read("system"), read("components"), read("quick-access"), read("integrations")]);
+  html += "<h2>System</h2>" + kv([
+    ["OS", sys.pretty_name || sys.name], ["family", sys.family], ["id_like", (sys.id_like || []).join(", ")],
+    ["immutable", sys.immutable], ["variant", sys.variant_id]]);
+  html += "<h2>Preparation components · Quick Access · Integrations</h2>"
+    + details("components", raw(comp)) + details("quick-access", raw(qa))
+    + details("integrations (" + Object.keys(integ.tools || {}).length + " tools, valid=" + integ.valid + ")", raw(integ));
+  return html;
 }
-function saveToken(){localStorage.setItem('bc250token',document.getElementById('token').value.trim());tick();}
-async function get(cmd){const r=await fetch('/api/'+cmd+authQS());return await r.json();}
-function tile(label,value,unit,cls){return `<div class="card"><div class="label">${label}</div><div class="value ${cls||''}">${value}<span class="unit">${unit||''}</span></div></div>`;}
-async function tick(){
-  try{
-    const d=await get('telemetry');const m=d.metrics||{};
-    const cell=(l,k)=>{const x=m[k]||{};const v=(x.value==null)?'--':x.value;const c=x.status==='valid'?'ok':(x.status?'warn':'bad');return tile(l,v,x.unit,c);};
-    document.getElementById('tiles').innerHTML=cell('GPU (sclk)','sclk')+cell('VRAM (mclk)','mclk')+cell('온도','temperature')+cell('전압','voltage')+tile('상태',d.status||'?',null,d.status==='ok'?'ok':'warn');
-    const s=await get('system');
-    document.getElementById('system').innerHTML=`<code style="font-size:11px;word-break:break-all">${JSON.stringify(s).slice(0,400)}</code>`;
-    document.getElementById('upd').textContent=new Date().toLocaleTimeString()+' 갱신';
-  }catch(e){document.getElementById('upd').textContent='오류: '+e;}
+
+/* ---------------------------------------------------------------- Fans */
+const FAN_PRESETS = {quiet: 45, balanced: 60, cooling: 70, maximum: 100};
+async function renderFans() {
+  const f = await read("fans");
+  const chs = f.channels || [];
+  const w = !!f.write_enabled;
+  let html = '<div class="grid">'
+    + tile("sensor chip", (f.chips || []).join(", ") || "없음", null, (f.chips || []).length ? "ok" : "bad")
+    + tile("loaded drivers", (f.sensor_drivers || []).join(", ") || "없음", null, f.manual_pwm_ready ? "ok" : "warn")
+    + tile("manual PWM ready", f.manual_pwm_ready ? "yes" : "no", null, f.manual_pwm_ready ? "ok" : "warn")
+    + "</div>";
+  if (f.note) html += '<div class="warn" style="font-size:12px;margin:8px 0">' + esc(f.note) + "</div>";
+  if (!chs.length) {
+    return html + '<div class="card wide" style="margin-top:10px">nct668x PWM 채널을 읽을 수 없습니다 (센서 드라이버 없음 또는 BC-250 아님).</div>';
+  }
+  html += '<h2>PWM channels</h2><table><tr><th>ch</th><th>label</th><th>duty</th><th>%</th><th>RPM</th><th>enable</th>'
+    + (w ? "<th>control</th>" : "") + "</tr>";
+  for (const c of chs) {
+    const duty = c.duty == null ? 0 : c.duty;
+    html += "<tr><td>" + c.channel + "</td><td>" + esc(c.label || "") + "</td><td>" + duty + "</td><td>"
+      + Math.round(duty * 100 / 255) + "%</td><td>" + esc(dash(c.rpm)) + "</td><td>" + esc(dash(c.enable)) + "</td>";
+    if (w) {
+      html += '<td><div class="row" style="margin:0">'
+        + '<input type="range" min="0" max="255" value="' + duty + '" id="fan' + c.channel + '" data-fan="' + c.channel + '">'
+        + '<span class="dim" id="fanv' + c.channel + '" style="font-size:11px;width:74px">' + duty + " (" + Math.round(duty * 100 / 255) + "%)</span>"
+        + '<button data-act="fan-set" data-ch="' + c.channel + '">SET</button>'
+        + '<button class="sec" data-act="fan-auto" data-ch="' + c.channel + '">AUTO</button>'
+        + "</div></td>";
+    }
+    html += "</tr>";
+  }
+  html += "</table>";
+  if (w) {
+    html += '<div class="row"><span class="label">presets (chn ' + (chs[0] ? chs[0].channel : 1) + ".." + (chs[chs.length - 1].channel) + ")</span>";
+    for (const name of Object.keys(FAN_PRESETS)) {
+      html += '<button class="sec" data-act="fan-preset" data-preset="' + name + '">' + name + " " + FAN_PRESETS[name] + "%</button>";
+    }
+    html += "</div>";
+  }
+  return html + writeNote(f) + details("raw fans", raw({channels: chs, chips: f.chips, drivers: f.sensor_drivers}));
 }
-tick();loadFans();setInterval(()=>{tick();loadFans();},3000);
+const fanEntry = ch => ((snap.fans && snap.fans.channels) || []).find(c => c.channel === ch) || null;
+async function fanSet(ch) {
+  const slider = $("fan" + ch);
+  const value = slider ? +slider.value : 0;
+  const cur = fanEntry(ch);
+  await apply("fan", {op: "set", channel: ch, value: value}, "팬 CH" + ch + " duty",
+    [["duty", cur ? cur.duty : null, value], ["percent", cur ? cur.duty_percent + "%" : null, Math.round(value * 100 / 255) + "%"],
+     ["mode", cur && cur.enable === 1 ? "manual" : "auto", "manual"]],
+    "sudo -n bc250-fan-pwm-helper <<< " + ch + " " + value + "; EXIT");
+}
+async function fanAuto(ch) {
+  const cur = fanEntry(ch);
+  await apply("fan", {op: "auto", channel: ch}, "팬 CH" + ch + " 자동 복귀",
+    [["duty", cur ? cur.duty : null, "driver controls"], ["enable", cur ? cur.enable : null, "automatic"]],
+    "sudo -n bc250-fan-pwm-helper <<< AUTO " + ch + "; EXIT");
+}
+async function fanPreset(name) {
+  const list = ((snap.fans && snap.fans.channels) || []).filter(c => c.duty != null);
+  if (!list.length) { return toast("채널 없음", "읽을 수 있는 PWM 채널이 없습니다.", "bad"); }
+  const target = Math.round(FAN_PRESETS[name] * 255 / 100);
+  const pairs = list.slice(0, 10).map(c => ["CH" + c.channel + " duty", c.duty, target]);
+  await apply("fan", {op: "preset", channel: list[0].channel, preset: name}, "팬 프리셋 " + name,
+    pairs, "sudo -n bc250-fan-pwm-helper <<< " + list.map(c => c.channel + " " + target).join("; ") + "; EXIT");
+}
+
+/* ----------------------------------------------------------------- GPU */
+function gpuRange(g) {
+  const p = ((g || {}).parsed || {})["frequency-range"] || {};
+  const a = (g || {}).active_keys || {};
+  const num = v => (v == null ? null : parseInt(String(v).replace(/[^0-9-]/g, ""), 10));
+  return {min: p["minimum-mhz"] != null ? p["minimum-mhz"] : num(a["minimum-mhz"]),
+          max: p["maximum-mhz"] != null ? p["maximum-mhz"] : num(a["maximum-mhz"]),
+          mode: p.mode || a.mode || null};
+}
+async function renderGPU() {
+  const g = await read("gpu");
+  const lim = (caps && caps.limits.gpu) || {frequency_mhz: [500, 2400], voltage_mv: [600, 1210], voltage_levels: [0, 6]};
+  const r = gpuRange(g);
+  const w = !!g.write_enabled;
+  const dis = w ? "" : " disabled";
+  let html = '<div class="grid">'
+    + tile("governor config", g.available ? (g.config_path || "읽음") : (g.reason || "없음"), null, g.available ? "ok" : "warn")
+    + tile("SMU range", (r.min == null ? "–" : r.min) + " – " + (r.max == null ? "–" : r.max), "MHz", g.available ? "ok" : "dim")
+    + tile("range mode", r.mode, null, "")
+    + tile("oberon config", g.oberon_config_present ? "present" : "absent", null, "")
+    + "</div>";
+  if (!g.available) html += '<div class="card wide" style="margin-top:10px">' + esc(dash(g.reason)) + " " + esc(dash(g.hint)) + "</div>";
+  html += '<h2>Frequency</h2><div class="row">min <input type="number" id="gpumin" min="' + lim.frequency_mhz[0]
+    + '" max="' + lim.frequency_mhz[1] + '" step="50" value="' + (r.min == null ? 1000 : r.min) + '"> MHz'
+    + ' max <input type="number" id="gpumax" min="' + lim.frequency_mhz[0] + '" max="' + lim.frequency_mhz[1]
+    + '" step="50" value="' + (r.max == null ? 1850 : r.max) + '"> MHz'
+    + '<button data-act="gpu-range"' + dis + ">Apply range</button>"
+    + '<button class="sec" data-act="gpu-floor"' + dis + ">Set min as floor</button>"
+    + '<button class="sec" data-act="gpu-clear"' + dis + ">Clear range</button>"
+    + '<span class="dim" style="font-size:11px">허용 ' + lim.frequency_mhz[0] + "–" + lim.frequency_mhz[1] + " MHz</span></div>"
+    + '<div class="row"><button class="sec" data-act="gpu-high" data-on="1"' + dis + ">High safe-points enable</button>"
+    + '<button class="sec" data-act="gpu-high" data-on="0"' + dis + ">High safe-points disable</button></div>";
+  html += '<h2>Voltage lab</h2><div class="row">level <select id="gpulvl">'
+    + lim.voltage_levels.map(l => '<option value="' + l + '">' + l + "</option>").join("")
+    + '</select><button data-act="gpu-level"' + dis + ">Apply level</button>"
+    + '<span class="dim" style="font-size:11px">level N = packaged defaults + N·10 mV from 2000 MHz</span></div>'
+    + '<div class="row" style="align-items:flex-start"><span class="label">custom</span><textarea id="gpucustom" placeholder="2000=1050&#10;2100=1080"></textarea></div>'
+    + '<div class="row"><button data-act="gpu-custom"' + dis + ">Apply custom voltages</button>"
+    + '<span class="dim" style="font-size:11px">freq=mV 한 줄에 하나, mV ' + lim.voltage_mv[0] + "–" + lim.voltage_mv[1] + "</span></div>";
+  html += '<h2>Cyan compatibility</h2><div class="row">set <select id="gpuset"><option value="smu">smu</option><option value="kernel">kernel</option></select>'
+    + 'usage <select id="gpuusage"><option value="busy-flag">busy-flag</option><option value="process">process</option><option value="kernel">kernel</option></select>'
+    + '<label><input type="checkbox" id="gpufixm"> fix metrics</label><label><input type="checkbox" id="gpufixf"> fix frequency</label>'
+    + '<button data-act="gpu-compat"' + dis + ">Apply compatibility</button></div>"
+    + '<div class="row"><label><input type="checkbox" id="gputelem"> fix_frequency</label>'
+    + '<button class="sec" data-act="gpu-telemetry"' + dis + ">Ensure GPU telemetry</button>"
+    + '<button class="sec" data-act="gpu-metrics"' + dis + ">Set metrics fix (checkbox)</button></div>";
+  return html + writeNote(g) + details("parsed governor config", raw(g.parsed || {}))
+    + details("active / commented keys", raw({active: g.active_keys, commented: g.commented_keys}));
+}
+async function gpuRangeSet() {
+  const min = +$("gpumin").value, max = +$("gpumax").value;
+  const cur = gpuRange(snap.gpu);
+  await apply("gpu", {action: "set-frequency-range", min_mhz: min, max_mhz: max}, "GPU SMU frequency range",
+    [["min MHz", cur.min, min], ["max MHz", cur.max, max]],
+    "sudo -n bc250-governor-config-helper set-frequency-range " + min + " " + max);
+}
+async function gpuFloor() {
+  const min = +$("gpumin").value, cur = gpuRange(snap.gpu);
+  await apply("gpu", {action: "set-frequency-floor", min_mhz: min}, "GPU frequency floor",
+    [["range now", (cur.min == null ? "–" : cur.min) + "–" + (cur.max == null ? "–" : cur.max) + " MHz", "floor " + min + " MHz"]],
+    "sudo -n bc250-governor-config-helper set-frequency-floor " + min);
+}
+async function gpuClear() {
+  const cur = gpuRange(snap.gpu);
+  await apply("gpu", {action: "clear-frequency-range"}, "GPU range 삭제",
+    [["range", (cur.min == null ? "–" : cur.min) + "–" + (cur.max == null ? "–" : cur.max) + " MHz", "cleared → governor defaults"]],
+    "sudo -n bc250-governor-config-helper clear-frequency-range");
+}
+async function gpuHigh(on) {
+  await apply("gpu", {action: "set-high-points", enabled: on}, "GPU high safe-points",
+    [["points above 2000 MHz", "see raw config", on ? "enabled" : "disabled"]],
+    "sudo -n bc250-governor-config-helper " + (on ? "enable" : "disable") + "-high-points");
+}
+async function gpuLevel() {
+  const level = +$("gpulvl").value;
+  await apply("gpu", {action: "set-voltage-level", level: level}, "GPU voltage level",
+    [["voltage curve", "level not reported by the config read", "level " + level]],
+    "sudo -n bc250-governor-config-helper set-cyan-voltage-level " + level);
+}
+async function gpuCustom() {
+  const lines = $("gpucustom").value.split("\n").map(l => l.trim()).filter(Boolean);
+  if (!lines.length) { return toast("값 없음", "freq=mV 줄을 입력하세요.", "bad"); }
+  const voltages = {};
+  for (const line of lines) {
+    const parts = line.split("=");
+    if (parts.length !== 2 || !/^[0-9]+$/.test(parts[0].trim()) || !/^-?[0-9]+$/.test(parts[1].trim())) {
+      return toast("입력 오류", line + " → freq=mV 형식이어야 합니다.", "bad");
+    }
+    voltages[parts[0].trim()] = +parts[1].trim();
+  }
+  const keys = Object.keys(voltages).sort((a, b) => a - b);
+  await apply("gpu", {action: "set-custom-voltages", voltages: voltages}, "GPU custom voltages",
+    keys.map(f => [f + " MHz", "see raw config", voltages[f] + " mV"]),
+    "sudo -n bc250-governor-config-helper set-cyan-custom-voltages " + keys.map(f => f + "=" + voltages[f]).join(" "));
+}
+async function gpuCompat() {
+  const body = {action: "set-compatibility", set_method: $("gpuset").value, usage_method: $("gpuusage").value,
+    fix_metrics: $("gpufixm").checked, fix_frequency: $("gpufixf").checked};
+  await apply("gpu", body, "Cyan compatibility",
+    [["set method", "see raw config", body.set_method], ["usage method", "see raw config", body.usage_method],
+     ["fix metrics", "see raw config", body.fix_metrics], ["fix frequency", "see raw config", body.fix_frequency]],
+    "sudo -n bc250-governor-config-helper set-cyan-compatibility " + body.set_method + " " + body.usage_method
+      + " " + (body.fix_metrics ? 1 : 0) + " " + (body.fix_frequency ? 1 : 0));
+}
+async function gpuTelemetry() {
+  const fix = $("gputelem").checked;
+  await apply("gpu", {action: "ensure-telemetry", fix_frequency: fix}, "GPU telemetry ensure",
+    [["fix_frequency", "see raw config", fix]],
+    "sudo -n bc250-governor-config-helper ensure-cyan-telemetry " + (fix ? 1 : 0));
+}
+async function gpuMetrics() {
+  const on = $("gpufixm").checked;
+  await apply("gpu", {action: "set-metrics-fix", enabled: on}, "GPU metrics fix",
+    [["metrics fix", "see raw config", on]],
+    "sudo -n bc250-governor-config-helper set-cyan-metrics-fix " + (on ? 1 : 0));
+}
+
+/* ------------------------------------------------------------------ CU */
+const cuCount = masks => Array.isArray(masks)
+  ? masks.reduce((sum, m) => sum + (((m & 31).toString(2).match(/1/g) || []).length) * 2, 0) : null;
+async function renderCU() {
+  const c = await read("cu");
+  const live = c.live || {};
+  const w = !!c.write_enabled;
+  const dis = w ? "" : " disabled";
+  let html = '<div class="grid">'
+    + tile("live topology", live.available ? "present" : (live.reason || "없음"), null, live.available ? "ok" : "warn")
+    + tile("active CUs", live.active_cus, null, live.count_in_contract ? "ok" : "bad")
+    + tile("staged backend", c.backend_ready ? "yes" : "no", null, c.backend_ready ? "ok" : "warn")
+    + tile("snapshot consistent", live.internally_consistent ? "yes" : "no", null, live.internally_consistent ? "ok" : "bad")
+    + "</div>";
+  if (!live.available) html += '<div class="card wide" style="margin-top:10px">' + esc(dash(live.reason)) + " " + esc(dash(live.hint)) + "</div>";
+  if (live.masks) {
+    html += "<h2>WGP table</h2><table><tr><th>row</th><th>se.sh</th>";
+    for (let i = 0; i < 5; i++) html += "<th>WGP" + i + "</th>";
+    html += "<th>mask</th><th>CUs</th></tr>";
+    live.masks.forEach((m, row) => {
+      html += "<tr><td>" + row + "</td><td>" + Math.floor(row / 2) + "." + row % 2 + "</td>";
+      for (let k = 0; k < 5; k++) {
+        const on = m & (1 << k);
+        const token = ((live.tokens || [])[row] || [])[k] || "";
+        html += '<td class="' + (on ? "ok" : "dim") + '">' + (on ? "●" : "○") + ' <span style="font-size:11px">' + esc(token) + "</span></td>";
+      }
+      html += "<td>" + m + "</td><td>" + cuCount([m]) + "</td></tr>";
+    });
+    html += "</table>";
+  }
+  html += '<h2>Compute units</h2><div class="row">target <select id="cutarget">'
+    + (c.targets || []).map(t => '<option value="' + t + '"' + (live.active_cus === t ? " selected" : "") + ">" + t + " CUs</option>").join("")
+    + '</select><label><input type="checkbox" id="cupersist"> save boot table (write-service-table)</label>'
+    + '<button data-act="cu-set"' + dis + ">Apply count</button>"
+    + '<button class="sec" data-act="cu-all"' + dis + ">Enable all</button>"
+    + '<button class="danger" data-act="cu-stock"' + dis + ">Stock dispatch</button></div>"
+    + '<div class="row"><span class="label">table</span>'
+    + (live.masks || [0, 0, 0, 0]).map((m, i) => '<input type="number" min="0" max="31" value="' + m + '" id="cumask' + i + '" style="width:62px" data-cumask>').join("")
+    + '<span id="cucount" class="dim" style="font-size:11px"></span>'
+    + '<button class="sec" data-act="cu-table"' + dis + ">Apply table</button></div>";
+  setTimeout(cuPreview, 0);
+  return html + writeNote(c) + details("raw cu state", raw(live));
+}
+function cuReadMasks() {
+  const masks = [];
+  for (let i = 0; i < 4; i++) {
+    const el = $("cumask" + i);
+    masks.push(el ? Math.max(0, Math.min(31, parseInt(el.value || "0", 10) || 0)) : 0);
+  }
+  return masks;
+}
+function cuPreview() {
+  const el = $("cucount");
+  if (!el) return;
+  const n = cuCount(cuReadMasks());
+  const ok = ((snap.cu && snap.cu.targets) || []).includes(n);
+  el.textContent = "→ " + n + " CUs" + (ok ? "" : " (허용 범위 밖)");
+  el.className = ok ? "ok" : "warn";
+}
+async function cuSet() {
+  const target = +$("cutarget").value;
+  const persist = $("cupersist").checked;
+  const live = (snap.cu || {}).live || {};
+  await apply("cu", {op: "set", cu: target, persist: persist}, "Compute units → " + target,
+    [["active CUs", live.active_cus, target], ["masks", (live.masks || []).join(","), "derived from the live table"],
+     ["persistence", "live only", persist ? "write-service-table" : "live only"]],
+    "sudo -n bc250-cu-helper enable-wgp/disable-wgp (removals first)" + (persist ? " + write-service-table" : ""));
+}
+async function cuTable() {
+  const masks = cuReadMasks();
+  const live = (snap.cu || {}).live || {};
+  await apply("cu", {op: "table", masks: masks, persist: $("cupersist").checked}, "Compute units table",
+    [["masks", (live.masks || []).join(","), masks.join(",")], ["active CUs", live.active_cus, cuCount(masks)]],
+    "sudo -n bc250-cu-helper batch <disable-wgp, enable-wgp>");
+}
+async function cuAll() {
+  const live = (snap.cu || {}).live || {};
+  await apply("cu", {op: "enable-all"}, "CU 전부 활성화",
+    [["active CUs", live.active_cus, "all routed"], ["masks", (live.masks || []).join(","), "all WGPs"]],
+    "sudo -n bc250-cu-helper --yes enable all");
+}
+async function cuStock() {
+  const live = (snap.cu || {}).live || {};
+  await apply("cu", {op: "stock-dispatch"}, "CU stock dispatch 복원",
+    [["routing", "custom table " + (live.masks || []).join(","), "vendor stock dispatch"]],
+    "sudo -n bc250-cu-helper --yes stock-dispatch");
+}
+
+/* ------------------------------------------------------------- CPU-SMU */
+function estimatedVid(freq, scale) {
+  if (freq < 3000) return null;
+  const p = -1.519 + scale * 0.004325;
+  const q = 2800.0 - scale * 10.0;
+  return Math.round(0.0003 * freq * freq + p * freq + q);
+}
+async function renderCPU() {
+  const c = await read("cpu");
+  const lim = (caps && caps.limits.cpu) || {frequency_mhz: [3100, 4200], frequency_step_mhz: 50, scale: [-50, 0], temperature_c: [70, 90], vid_limit_mv: 1325};
+  const live = c.live || {};
+  const prof = live.active_profile || {};
+  const boot = c.boot_config || {};
+  const persisted = boot.persisted || {};
+  const w = !!c.write_enabled;
+  const dis = w ? "" : " disabled";
+  let html = '<div class="grid">'
+    + tile("live profile", live.available ? (prof.mode || "present") : (live.reason || "없음"), null, live.available ? "ok" : "warn")
+    + tile("frequency", prof.frequency, "MHz", "")
+    + tile("scale", prof.scale, null, "")
+    + tile("temp limit", prof.temperature, "°C", "")
+    + tile("estimated VID", prof.estimated_vid, "mV", (prof.estimated_vid || 0) <= lim.vid_limit_mv ? "ok" : "bad")
+    + "</div><h2>Boot persistence</h2>" + kv([
+      ["file", boot.path], ["available", boot.available ? "yes" : dash(boot.reason)],
+      ["frequency", persisted.frequency], ["scale", persisted.scale], ["max_temperature", persisted.max_temperature]]);
+  html += '<h2>Apply a profile</h2><div class="row">frequency <select id="cpufreq">';
+  for (let f = lim.frequency_mhz[0]; f <= lim.frequency_mhz[1]; f += lim.frequency_step_mhz) {
+    html += '<option value="' + f + '"' + (prof.frequency === f ? " selected" : "") + ">" + f + " MHz</option>";
+  }
+  html += '</select> scale <input type="number" id="cpuscale" min="' + lim.scale[0] + '" max="' + lim.scale[1]
+    + '" value="' + (prof.scale == null ? -20 : prof.scale) + '" style="width:70px">'
+    + ' temp <input type="number" id="cputemp" min="' + lim.temperature_c[0] + '" max="' + lim.temperature_c[1]
+    + '" value="' + (prof.temperature == null ? 90 : prof.temperature) + '" style="width:62px"> °C'
+    + ' <span id="cpavid" style="font-size:11px"></span></div>'
+    + '<div class="row"><button data-act="cpu-live" data-persist="0"' + dis + ">Apply live</button>"
+    + '<button data-act="cpu-live" data-persist="1"' + dis + ">Apply live + persist at boot</button>"
+    + '<button class="sec" data-act="cpu-boot"' + dis + ">install-boot (write config only)</button>"
+    + '<button class="danger" data-act="cpu-uninstall"' + dis + ">Disable boot OC</button></div>"
+    + '<div class="dim" style="font-size:11px">limits ' + lim.frequency_mhz[0] + "–" + lim.frequency_mhz[1] + " MHz ("
+    + lim.frequency_step_mhz + " MHz steps), scale " + lim.scale[0] + ".." + lim.scale[1] + ", temp "
+    + lim.temperature_c[0] + "–" + lim.temperature_c[1] + " °C, estimated VID ≤ " + lim.vid_limit_mv
+    + " mV — the root helper re-checks every value.</div>";
+  document.querySelectorAll("#cpufreq,#cpuscale").forEach(el => el.onchange = cpuVidPreview);
+  setTimeout(cpuVidPreview, 0);
+  return html + writeNote(c) + details("raw cpu state", raw(c));
+}
+function cpuValues() {
+  return {frequency: +$("cpufreq").value, scale: +$("cpuscale").value, temperature: +$("cputemp").value};
+}
+function cpuVidPreview() {
+  const el = $("cpavid");
+  if (!el) return;
+  const v = cpuValues();
+  const vid = estimatedVid(v.frequency, v.scale);
+  const ceiling = (caps && caps.limits.cpu && caps.limits.cpu.vid_limit_mv) || 1325;
+  el.textContent = vid == null ? "VID estimate n/a below 3000 MHz" : "estimated VID " + vid + " mV (ceiling " + ceiling + " mV)";
+  el.className = vid != null && vid > ceiling ? "bad" : "dim";
+}
+async function cpuApply(persist) {
+  const v = cpuValues();
+  const live = ((snap.cpu || {}).live || {}).active_profile || {};
+  const pairs = [["frequency MHz", live.frequency, v.frequency], ["scale", live.scale, v.scale],
+                 ["temp limit °C", live.temperature, v.temperature], ["estimated VID", live.estimated_vid, estimatedVid(v.frequency, v.scale)]];
+  if (persist) pairs.push(["boot", "no change", v.frequency + " MHz / scale " + v.scale + " / " + v.temperature + " °C"]);
+  await apply("cpu", {action: persist ? "install-boot" : "apply-live", frequency: v.frequency, scale: v.scale, temperature: v.temperature},
+    "CPU SMU " + (persist ? "live + boot" : "live"), pairs,
+    "sudo -n bc250-cpu-smu-helper " + (persist ? "install-boot" : "apply-live") + " " + v.frequency + " " + v.scale + " " + v.temperature);
+}
+async function cpuBoot() {
+  const v = cpuValues();
+  const persisted = ((snap.cpu || {}).boot_config || {}).persisted || {};
+  await apply("cpu", {action: "install-boot", frequency: v.frequency, scale: v.scale, temperature: v.temperature},
+    "CPU boot OC 설치", [["boot frequency", persisted.frequency, v.frequency], ["boot scale", persisted.scale, v.scale],
+     ["boot temp limit", persisted.max_temperature, v.temperature], ["effect", "next boot", "next boot"]],
+    "sudo -n bc250-cpu-smu-helper install-boot " + v.frequency + " " + v.scale + " " + v.temperature);
+}
+async function cpuUninstall() {
+  const persisted = ((snap.cpu || {}).boot_config || {}).persisted || {};
+  await apply("cpu", {action: "disable-boot"}, "CPU boot OC 해제",
+    [["boot config", persisted.frequency ? persisted.frequency + " MHz / scale " + persisted.scale : "없음", "boot unit removed"]],
+    "sudo -n bc250-cpu-smu-helper disable-boot");
+}
+
+/* ------------------------------------------------------------ Recovery */
+function tableOf(rows, limit) {
+  if (!Array.isArray(rows) || !rows.length) return '<div class="dim" style="font-size:12px">없음</div>';
+  const keys = Object.keys(rows[0]).slice(0, 8);
+  let html = "<table><tr>" + keys.map(k => "<th>" + esc(k) + "</th>").join("") + "</tr>";
+  rows.slice(0, limit || 40).forEach(row => {
+    html += "<tr>" + keys.map(k => {
+      const value = row[k];
+      return "<td>" + esc(typeof value === "object" && value !== null ? JSON.stringify(value) : dash(value)) + "</td>";
+    }).join("") + "</tr>";
+  });
+  return html + "</table>";
+}
+function firstArray(obj) {
+  if (Array.isArray(obj)) return obj;
+  if (!obj || typeof obj !== "object") return null;
+  for (const key of Object.keys(obj)) {
+    if (Array.isArray(obj[key]) && obj[key].length && typeof obj[key][0] === "object") return obj[key];
+  }
+  return null;
+}
+async function renderRecovery() {
+  const [rec, gates, metrics, audit] = await Promise.all([read("recovery"), read("release-gates"), read("metrics"), read("audit")]);
+  let html = "<h2>Recovery snapshots</h2>" + (tableOf(firstArray(rec), 30) === '<div class="dim" style="font-size:12px">없음</div>'
+    ? details("raw recovery", raw(rec)) : tableOf(firstArray(rec), 30));
+  const blockers = gates.blockers || gates.hardware_blockers || firstArray(gates) || [];
+  html += "<h2>Release gates</h2>"
+    + (blockers.length ? "<ul>" + blockers.slice(0, 25).map(b => "<li>" + esc(typeof b === "string" ? b : JSON.stringify(b)) + "</li>").join("") + "</ul>"
+      : '<div class="ok" style="font-size:12px">블로커 없음</div>')
+    + details("raw release-gates", raw(gates));
+  const rows = metrics.metrics || [];
+  html += "<h2>Runtime metrics (last " + rows.length + ")</h2>"
+    + (rows.length ? tableOf(rows.slice(-25).reverse(), 25) : '<div class="dim" style="font-size:12px">기록 없음</div>')
+    + "<h2>Web write audit</h2>" + auditTable(audit.entries || []);
+  return html;
+}
+function auditTable(entries) {
+  if (!entries.length) return '<div class="dim" style="font-size:12px">이 서버에서 아직 쓰기가 없습니다</div>';
+  let html = "<table><tr><th>time</th><th>kind</th><th>result</th><th>request</th><th>detail</th></tr>";
+  entries.slice().reverse().slice(0, 40).forEach(e => {
+    html += "<tr><td>" + esc(e.ts) + "</td><td>" + esc(e.kind) + '</td><td class="' + (e.ok ? "ok" : "warn") + '">'
+      + esc(dash(e.outcome)) + '</td><td style="font-size:11px">' + esc(JSON.stringify(e.request || "").slice(0, 120))
+      + '</td><td style="font-size:11px">' + esc(String(e.detail || "").slice(0, 170)) + "</td></tr>";
+  });
+  return html + "</table>";
+}
+
+/* -------------------------------------------------------------- Profiles */
+const summarise = obj => JSON.parse(JSON.stringify(obj || {}, (key, value) =>
+  (typeof value === "string" && value.length > 96 ? value.slice(0, 93) + "..." : value)));
+let previewed = null; /* {preview_id, checksum, diff, size_bytes} */
+
+async function postProfiles(kind, body) {
+  if (!caps || !caps.write_enabled) {
+    return {ok: false, outcome: "disabled", detail: "서버에 BC250_WEB_ENABLE_WRITE=1 이 없습니다."};
+  }
+  if (!tok()) {
+    return {ok: false, outcome: "disabled", detail: "토큰이 없습니다."};
+  }
+  const payload = Object.assign({confirm: true, expected_state: hashOf("profiles")}, body || {});
+  try {
+    const r = await fetch("/api/" + kind, {method: "POST",
+      headers: {"Content-Type": "application/json", "X-Auth": tok()}, body: JSON.stringify(payload)});
+    const data = await r.json().catch(() => ({detail: "HTTP " + r.status + " 응답이 JSON이 아닙니다"}));
+    if (r.status === 401) { setAuth(false); data.detail = data.detail || "401 unauthorized"; }
+    return data;
+  } catch (e) {
+    return {ok: false, outcome: "transport", detail: String(e)};
+  }
+}
+
+function outcomeCls(data, status) {
+  const outcome = (data && data.outcome) || ((data && data.ok) ? "applied" : "rejected");
+  return (outcome === "applied" || outcome === "unchanged") ? "applied"
+    : (outcome === "rejected" || outcome === "stale" || status === 409) ? "rejected" : "bad";
+}
+
+function downloadText(name, text) {
+  if (!(typeof URL !== "undefined" && URL.createObjectURL)) return;
+  const url = URL.createObjectURL(new Blob([text], {type: "application/json"}));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+async function renderProfiles() {
+  const p = await read("profiles");
+  const w = !!p.write_enabled;
+  const dis = w ? "" : " disabled";
+  const keys = p.config_keys || [];
+  const counts = p.profile_counts || {};
+  const bundle = p.bundle || {};
+  let html = '<div class="grid">'
+    + tile("settings", p.error ? "읽기 실패" : keys.length + " keys", null, p.error ? "bad" : "ok")
+    + tile("profile sections", Object.keys(counts).length, null, "")
+    + tile("bundle schema", bundle.schema, null, "")
+    + tile("exported", bundle.exported_at ? new Date(bundle.exported_at * 1000).toLocaleTimeString() : "-", null, "")
+    + "</div>";
+  if (p.error) {
+    html += '<div class="card wide"><div class="bad">' + esc(p.error)
+      + '</div><div class="dim" style="font-size:12px;margin-top:6px">profiles 내보내기가 실패했습니다. 데스크톱이 한 번 실행된 사용자 계정인지 확인하세요.</div></div>';
+  }
+  html += '<h2>Export</h2><div class="row">'
+    + '<button data-act="prof-export"' + dis + ">Export bundle</button>"
+    + '<span class="dim" style="font-size:11px">지금 설정(' + keys.length + " keys, " + Object.keys(counts).length
+    + " sections)을 bundle로 내려받습니다 · 최대 " + Math.round((p.max_bundle_bytes || 2097152) / 1024) + " KiB</span></div>";
+  html += '<h2>Import</h2><div class="row">'
+    + '<input type="file" id="proffile" accept="application/json,.json">'
+    + '<button class="sec" data-act="prof-preview"' + dis + ">Preview bundle</button>"
+    + '<button data-act="prof-import"' + (previewed && w ? "" : " disabled") + ">Import previewed bundle</button></div>";
+  if (previewed) {
+    const d = previewed.diff || {};
+    html += '<div class="card wide" style="margin-top:8px">' + kv([
+      ["preview id", previewed.preview_id],
+      ["checksum", previewed.checksum],
+      ["size", previewed.size_bytes + " B"],
+      ["settings", (d.config_keys_now || 0) + " keys -> " + (d.config_keys_incoming || 0) + " keys"],
+      ["added", (d.added || []).length ? (d.added || []).slice(0, 8).join(", ") + ((d.added || []).length > 8 ? " ..." : "") : "없음"],
+      ["removed", (d.removed || []).length ? (d.removed || []).slice(0, 8).join(", ") : "없음"],
+      ["sections", ((d.sections_now || []).join(", ") || "-") + "  ->  " + ((d.sections_incoming || []).join(", ") || "-")],
+    ]) + '<div class="dim" style="font-size:11px;margin-top:6px">가져오기는 이 preview의 checksum을 서버가 다시 확인한 뒤, 현재 설정을 backups/에 백업하고 한 번만 적용합니다. 라이브 하드웨어에는 아무것도 쓰지 않습니다.</div></div>';
+  } else {
+    html += '<div class="dim" style="font-size:12px;margin-top:8px">가져오기는 preview 없이 실행되지 않습니다.</div>';
+  }
+  html += "<h2>Live inventory</h2>";
+  html += tableOf(Object.keys(counts).map(name => [name, counts[name]]), 30);
+  html += details("config key values", raw(summarise(bundle.config)));
+  html += details("profile sections", raw(summarise(bundle.profiles)));
+  return html + writeNote(p);
+}
+
+async function profExport() {
+  const p = snap.profiles || {};
+  const keys = (p.config_keys || []).length;
+  const ok = await confirmApply("프로파일 bundle 내보내기",
+    [["settings", keys + " keys", "bundle file"],
+     ["profile sections", Object.keys(p.profile_counts || {}).length, "bundle file"]],
+    "profiles export -> staged file, then downloaded by this browser");
+  if (!ok) return toast("취소됨", "내보내지 않았습니다.", "");
+  const data = await postProfiles("profiles-export", {});
+  const outcome = data.outcome || (data.ok ? "applied" : "rejected");
+  if (data.ok) {
+    downloadText(data.filename || "bc250-profiles.json", data.bundle_text || JSON.stringify(data.bundle, null, 2));
+    toast("프로파일 내보내기 · " + outcome, (data.size_bytes || 0) + " B · sha256 " + String(data.sha256 || "").slice(0, 16), "applied");
+  } else {
+    toast("프로파일 내보내기 · " + outcome, data.detail || "(응답 없음)", outcomeCls(data));
+  }
+  await refresh(true);
+}
+
+async function profPreview() {
+  const input = $("proffile");
+  const file = input && input.files && input.files[0];
+  if (!file) return toast("파일 없음", "bundle JSON 파일을 선택하세요.", "bad");
+  let text;
+  try { text = await file.text(); } catch (e) { return toast("읽기 실패", String(e), "bad"); }
+  let bundle;
+  try { bundle = JSON.parse(text); } catch (e) { return toast("JSON 아님", String(e), "bad"); }
+  const data = await postProfiles("profiles-preview", {bundle: bundle});
+  if (!data.ok) {
+    previewed = null;
+    toast("프로파일 preview · " + (data.outcome || "rejected"), data.detail || "(응답 없음)", outcomeCls(data), data.hint);
+    await refresh(true);
+    return;
+  }
+  previewed = {
+    preview_id: data.preview_id,
+    checksum: (data.cli || {}).checksum,
+    diff: data.diff || {},
+    size_bytes: data.size_bytes,
+  };
+  toast("프로파일 preview · ok", "settings " + (previewed.diff.config_keys_now || 0) + " -> "
+    + (previewed.diff.config_keys_incoming || 0) + " keys · " + String(previewed.checksum || "").slice(0, 16), "applied");
+  await refresh(true);
+}
+
+async function profImport() {
+  if (!previewed) return toast("preview 먼저", "bundle을 preview해야 가져올 수 있습니다.", "bad");
+  const d = previewed.diff || {};
+  const ok = await confirmApply("프로파일 bundle 가져오기", [
+    ["settings", (d.config_keys_now || 0) + " keys", (d.config_keys_incoming || 0) + " keys"],
+    ["added", (d.added || []).length ? d.added.slice(0, 6).join(", ") : "없음", "새로 들어옴"],
+    ["removed", (d.removed || []).length ? d.removed.slice(0, 6).join(", ") : "없음", "사라짐"],
+    ["sections", (d.sections_now || []).join(", ") || "-", (d.sections_incoming || []).join(", ") || "-"],
+    ["checksum", String(previewed.checksum || "").slice(0, 16), "서버가 재확인"],
+  ], "profiles import --yes (현재 설정은 backups/에 백업됩니다)");
+  if (!ok) return toast("취소됨", "가져오지 않았습니다.", "");
+  const data = await postProfiles("profiles-import", {preview_id: previewed.preview_id, checksum: previewed.checksum});
+  const outcome = data.outcome || (data.ok ? "applied" : "rejected");
+  if (data.ok) previewed = null;
+  toast("프로파일 가져오기 · " + outcome, data.detail || "(응답 없음)", outcomeCls(data), data.hint);
+  await refresh(true);
+}
+
+/* ---------------------------------------------------------------- shell */
+const RENDER = {Monitor: renderMonitor, Fans: renderFans, GPU: renderGPU, CU: renderCU, "CPU-SMU": renderCPU, Profiles: renderProfiles, Recovery: renderRecovery};
+const ACTS = {
+  "fan-set": b => fanSet(+b.dataset.ch),
+  "fan-auto": b => fanAuto(+b.dataset.ch),
+  "fan-preset": b => fanPreset(b.dataset.preset),
+  "gpu-range": () => gpuRangeSet(),
+  "gpu-floor": () => gpuFloor(),
+  "gpu-clear": () => gpuClear(),
+  "gpu-high": b => gpuHigh(b.dataset.on === "1"),
+  "gpu-level": () => gpuLevel(),
+  "gpu-custom": () => gpuCustom(),
+  "gpu-compat": () => gpuCompat(),
+  "gpu-telemetry": () => gpuTelemetry(),
+  "gpu-metrics": () => gpuMetrics(),
+  "cu-set": () => cuSet(),
+  "cu-table": () => cuTable(),
+  "cu-all": () => cuAll(),
+  "cu-stock": () => cuStock(),
+  "cpu-live": b => cpuApply(b.dataset.persist === "1"),
+  "cpu-boot": () => cpuBoot(),
+  "cpu-uninstall": () => cpuUninstall(),
+  "prof-export": () => profExport(),
+  "prof-preview": () => profPreview(),
+  "prof-import": () => profImport()
+};
+document.getElementById("panel").addEventListener("click", e => {
+  const btn = e.target.closest("[data-act]");
+  if (btn && ACTS[btn.dataset.act]) ACTS[btn.dataset.act](btn);
+});
+document.getElementById("panel").addEventListener("input", e => {
+  const fan = e.target.closest("[data-fan]");
+  if (fan) {
+    const label = $("fanv" + fan.dataset.fan);
+    if (label) label.textContent = fan.value + " (" + Math.round(fan.value * 100 / 255) + "%)";
+  }
+  if (e.target.closest("[data-cumask]")) cuPreview();
+  if (e.target.closest("#cpufreq,#cpuscale")) cpuVidPreview();
+});
+
+function drawTabs() {
+  $("tabs").innerHTML = TABS.map(name => '<button class="tab' + (name === active ? " on" : "") + '" data-tab="'
+    + name + '">' + esc(name) + "</button>").join("");
+}
+$("tabs").addEventListener("click", e => {
+  const btn = e.target.closest("[data-tab]");
+  if (!btn) return;
+  active = btn.dataset.tab;
+  localStorage.setItem("bc250tab", active);
+  drawTabs();
+  refresh();
+});
+
+let rendering = false;
+async function refresh(force) {
+  if (rendering) return;
+  rendering = true;
+  try {
+    if (!caps || force === true) caps = await read("capabilities");
+    const ws = $("wstate");
+    ws.textContent = caps.write_enabled ? "쓰기 활성" : "쓰기 비활성";
+    ws.className = "pill " + (caps.write_enabled ? "on" : "off");
+    const missing = Object.keys(caps.helpers).filter(k => !caps.helpers[k].installed);
+    $("footstate").innerHTML = "contract " + esc(caps.contract_source) + " · helpers "
+      + Object.keys(caps.helpers).filter(k => caps.helpers[k].installed).join(", ")
+      + (missing.length ? ' <span class="warn">(미설치: ' + esc(missing.join(", ")) + ")</span>"
+        + '<span class="warn"> · sudo 호출 시 헬퍼가 거부합니다</span>' : "")
+      + " · sudo " + (caps.sudo_available ? "yes" : "no")
+      + (caps.write_enabled && !caps.auth.match(/token/) ? ' <span class="warn">· 토큰 없음: 쓰기 잠김</span>' : "");
+    const html = await RENDER[active]();
+    $("panel").innerHTML = html;
+    $("upd").textContent = new Date().toLocaleTimeString() + " 갱신";
+  } catch (e) {
+    $("panel").innerHTML = '<div class="card wide"><div class="bad">' + esc(String(e)) + "</div>"
+      + '<div class="dim" style="font-size:12px;margin-top:6px">401 이면 발화면 토큰을 입력하세요. 서버가 BC250_WEB_TOKEN 없이 떠 있으면 그대로 두면 됩니다.</div></div>';
+  } finally {
+    rendering = false;
+  }
+}
+$("savatar").onclick = () => { localStorage.setItem("bc250token", $("token").value.trim()); refresh(true); };
+drawTabs();
+refresh(true);
+setInterval(() => refresh(), 3000);
 </script>
 </body>
 </html>
