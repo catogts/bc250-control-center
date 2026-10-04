@@ -1754,6 +1754,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_HEAD(self) -> None:  # noqa: N802
+        # Liveness probes (curl -I, monitor shells) deserve headers-only
+        # answers instead of a 501; no body, no state, no auth needed.
+        self.send_response(200)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
     def _authorized(self, query, header_only: bool = False) -> bool:
         if not TOKEN:
             return True
