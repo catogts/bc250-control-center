@@ -28,10 +28,30 @@ button{background:#1f6feb;color:#fff;border:0;border-radius:8px;padding:6px 10px
 <h1>BC-250 Control Center</h1>
 <div class="sub">web frontend (phase 1, read-only) · <span id="upd">--</span></div>
 <div class="row" id="tiles"></div>
+<section><h2>Fans</h2><div id="fans">--</div></section>
 <section><h2>System</h2><div id="system">--</div></section>
 <footer>token: <input id="token" type="password" placeholder="BC250_WEB_TOKEN (비우면 로컬 무인증)"> <button onclick="saveToken()">저장</button></footer>
 <script>
 function authQS(){const t=localStorage.getItem('bc250token')||'';return t?('?token='+encodeURIComponent(t)):'';}
+function tok(){return localStorage.getItem('bc250token')||'';}
+async function postFan(body){
+  const r=await fetch('/api/fan'+authQS(),{method:'POST',headers:{'Content-Type':'application/json','X-Auth':tok()},body:JSON.stringify(body)});
+  const d=await r.json(); alert(d.ok?('적용됨: '+d.detail):('실패: '+d.detail)); loadFans();
+}
+async function loadFans(){
+  try{
+    const f=await get('fans');const chs=f.channels||[];
+    if(!chs.length){document.getElementById('fans').textContent='nct668 센서 없음';return;}
+    let h='<table><tr><th>ch</th><th>label</th><th>duty</th><th>RPM</th><th>enable</th>'+(f.write_enabled?'<th>control</th>':'')+'</tr>';
+    for(const c of chs){
+      const ctl=f.write_enabled?`<td><input type="range" min="0" max="255" value="${c.duty??127}" id="s${c.channel}" style="width:110px"> <button onclick="postFan({op:'set',channel:${c.channel},value:+document.getElementById('s${c.channel}').value})" >SET</button> <button onclick="if(confirm('ch${c.channel} 자동 모드로 되돌립니다'))postFan({op:'auto',channel:${c.channel}})">AUTO</button></td>`:'';
+      h+=`<tr><td>${c.channel}</td><td>${c.label||''}</td><td>${c.duty??'--'} (${Math.round((c.duty??0)/2.55)}%)</td><td>${c.rpm??'--'}</td><td>${c.enable??'--'}</td>${ctl}</tr>`;
+    }
+    h+='</table>';
+    if(!f.write_enabled)h+='<div style="font-size:11px;color:#8b98a5;margin-top:6px">쓰기 비활성 (서버 BC250_WEB_ENABLE_WRITE=1 필요)</div>';
+    document.getElementById('fans').innerHTML=h;
+  }catch(e){document.getElementById('fans').textContent='fans 오류: '+e;}
+}
 function saveToken(){localStorage.setItem('bc250token',document.getElementById('token').value.trim());tick();}
 async function get(cmd){const r=await fetch('/api/'+cmd+authQS());return await r.json();}
 function tile(label,value,unit,cls){return `<div class="card"><div class="label">${label}</div><div class="value ${cls||''}">${value}<span class="unit">${unit||''}</span></div></div>`;}
@@ -45,7 +65,7 @@ async function tick(){
     document.getElementById('upd').textContent=new Date().toLocaleTimeString()+' 갱신';
   }catch(e){document.getElementById('upd').textContent='오류: '+e;}
 }
-tick();setInterval(tick,3000);
+tick();loadFans();setInterval(()=>{tick();loadFans();},3000);
 </script>
 </body>
 </html>
